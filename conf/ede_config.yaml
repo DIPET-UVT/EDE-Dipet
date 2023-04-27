@@ -112,7 +112,7 @@ Analysis:
             - node_load1_10.211.55.103:9100
             - time
           location: /Users/Gabriel/Documents/workspaces/Event-Detection-Engine/edeuser/analysis
-  Solo: True
+  Solo: False
 
 
 
