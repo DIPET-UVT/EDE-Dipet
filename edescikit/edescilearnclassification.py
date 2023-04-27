@@ -48,11 +48,11 @@ import seaborn as sns
 import yaml
 import joblib
 import pickle as pickle
-from util import str2Bool
+from util import str2Bool, log_format
 import glob
 from util import ut2hum
 import shap
-from evolutionary_search import EvolutionaryAlgorithmSearchCV
+from ededeap import EvolutionaryAlgorithmSearchCV
 from edetensorflow.edetensor import dnn_aspide
 import itertools
 
@@ -138,7 +138,7 @@ class SciClassification:
                         print("RandomForest Prediction Array -> %s" % str(dpredict))
                     except Exception as inst:
                         logger.error('[%s] : [ERROR] Error while fitting randomforest model to event with %s and %s',
-                                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst),
+                                     datetime.fromtimestamp(time.time()).strftime(log_format), type(inst),
                                      inst.args)
                         dpredict = 0
                 elif isinstance(smodel, AdaBoostClassifier):
@@ -153,7 +153,7 @@ class SciClassification:
                         print("AdaBoost Prediction Array -> %s" % str(dpredict))
                     except Exception as inst:
                         logger.error('[%s] : [ERROR] Error while fitting AdaBoost model to event with %s and %s',
-                                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst),
+                                     datetime.fromtimestamp(time.time()).strftime(log_format), type(inst),
                                      inst.args)
                         sys.exit(1)
                 elif isinstance(smodel, DecisionTreeClassifier):
@@ -174,7 +174,7 @@ class SciClassification:
                         print("Decision Tree Prediction Array -> %s" % str(dpredict))
                     except Exception as inst:
                         logger.error('[%s] : [ERROR] Error while fitting Decision Tree model to event with %s and %s',
-                                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst),
+                                     datetime.fromtimestamp(time.time()).strftime(log_format), type(inst),
                                      inst.args)
                         sys.exit(1)
 
@@ -195,17 +195,17 @@ class SciClassification:
                         print("MLP Prediction Array -> %s" % str(dpredict))
                     except Exception as inst:
                         logger.error('[%s] : [ERROR] Error while fitting MLP model to event with %s and %s',
-                                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst),
+                                     datetime.fromtimestamp(time.time()).strftime(log_format), type(inst),
                                      inst.args)
                         sys.exit(1)
                 else:
                     logger.error('[%s] : [ERROR] Unsuported model loaded: %s!',
-                                 datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(smodel))
+                                 datetime.fromtimestamp(time.time()).strftime(log_format), type(smodel))
                     sys.exit(1)
             else:
                 dpredict = 0
                 logger.warning('[%s] : [WARN] Dataframe empty with shape (%s,%s)',
-                               datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(data.shape[0]),
+                               datetime.fromtimestamp(time.time()).strftime(log_format), str(data.shape[0]),
                                str(data.shape[1]))
                 print("Empty dataframe received with shape (%s,%s)" % (str(data.shape[0]),
                                                                        str(data.shape[1])))
@@ -224,7 +224,7 @@ class SciClassification:
         anomaliesDict = {}
         anomaliesDict['anomalies'] = anomalieslist
         logger.info('[%s] : [INFO] Detected anomalies with model %s using method %s are -> %s',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), model, method,
+                    datetime.fromtimestamp(time.time()).strftime(log_format), model, method,
                     str(anomaliesDict))
         return anomaliesDict
 
@@ -243,19 +243,19 @@ class SciClassification:
             if data.shape[0]:
                 try:
                     logger.info('[{}] : [INFO] Loading predictive model {} '.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(smodel).split('(')[0]))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(smodel).split('(')[0]))
                     for k, v in smodel.get_params().items():
                         logger.info('[{}] : [INFO] Predict model parameter {} set to {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
                         dpredict = smodel.predict(data)
                 except Exception as inst:
                     logger.error('[{}] : [ERROR] Failed to load predictive model with {} and {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
                     dpredict = 0
             else:
                 dpredict = 0
                 logger.warning('[{}] : [WARN] DataFrame is empty with shape {} '.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(data.shape)))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), str(data.shape)))
         anomaliesDict = {}
         if type(dpredict) is not int:
             if normal_label is None:  # Todo make normal_label  user definable
@@ -277,8 +277,12 @@ class SciClassification:
             count = 0 # todo merge filtering of dpred detection; related to np.argwhere bug for pandas and __shap_analysis data refiltering
             for an in anomalyArray:
                 anomalies = {}
-                anomalies['utc'] = int(data.iloc[an[0]].name)
-                anomalies['hutc'] = ut2hum(int(data.iloc[an[0]].name))
+                if pd._libs.tslibs.timestamps.Timestamp == type(data.iloc[an[0]].name):
+                    anomalies['utc'] = data.iloc[an[0]].name.timestamp()
+                    anomalies['hutc'] = str(data.iloc[an[0]].name)
+                else:
+                    anomalies['utc'] = int(data.iloc[an[0]].name)
+                    anomalies['hutc'] = ut2hum(int(data.iloc[an[0]].name))
                 anomalies['type'] = str(dpredict[an[0]])
                 if explainer:
                     anomalies['analysis'] = self.__shap_values_processing(explainer=explainer,
@@ -295,7 +299,7 @@ class SciClassification:
         anomaliesDict['anomalies'] = anomaliesList
 
         logger.info('[{}] : [INFO] Detected {} anomalies with model {} using method {} '.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), len(anomaliesList), model,
+            datetime.fromtimestamp(time.time()).strftime(log_format), len(anomaliesList), model,
             str(smodel).split('(')[0]))
         return anomaliesDict
 
@@ -314,7 +318,7 @@ class SciClassification:
         :return: feature importance
         """
         logger.info('[%s] : [INFO] Executing classification prediction analysis ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
 
         data_filtered = data.loc[data['target'] != normal_value]
         data_filtered.drop(['target'], inplace=True, axis=1)
@@ -326,7 +330,7 @@ class SciClassification:
             labels = model.classes_
         except Exception as inst:
             logger.error('[%s] : [ERROR] Prediction analysis failed with {} and {}',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                        datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             return 0
 
         feature_imp = self.__shap_feature_importance(shap_values=shap_values,
@@ -358,7 +362,7 @@ class SciClassification:
             shap_values_d['expected_value'] = explainer.expected_value[label]
         except Exception as inst:
             logger.error('[{}] : [ERROR] Error while executing shap processing with {} and {} '.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
         return shap_values_d
 
     def __shap_summary_plot(self,
@@ -443,7 +447,7 @@ class SciClassification:
         for model in modelList:
             scores.append(model.score(X, y))
         logger.info('[%s] : [INFO] Best performing model score is -> %s',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), max(scores))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), max(scores))
         # for a, b in itertools.combinations(modelList, 2):
         #     a.score(X, y)
         #     b.score(X, y)
@@ -461,13 +465,13 @@ class SciClassification:
         if "n_estimators" not in settings:
             print("Received settings for Ada Boost are %s invalid!" % str(settings))
             logger.error('[%s] : [ERROR] Received settings for Decision Tree %s are invalid',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(settings))
+                         datetime.fromtimestamp(time.time()).strftime(log_format), str(settings))
             sys.exit(1)
         dtallowedSettings = ["n_estimators", "learning_rate"]
         for k, v in settings.items():
             if k in dtallowedSettings:
                 logger.info('[%s] : [INFO] Ada Boost %s set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v)
                 print("Ada Boost %s set to %s" % (k, v))
 
         if not isinstance(self.export, str):
@@ -488,7 +492,7 @@ class SciClassification:
             trainSize = 1.0 - self.validratio
             print("Decision Tree training to validation ratio set to: %s" % str(self.validratio))
             logger.info('[%s] : [INFO] Ada Boost training to validation ratio set to: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(self.validratio))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(self.validratio))
             d_train, d_test, f_train, f_test = self.__dataSplit(X, y, testSize=self.validratio, trainSize=trainSize)
             ad.fit(d_train, f_train)
             predict = ad.predict(d_train)
@@ -505,13 +509,13 @@ class SciClassification:
             score = ad.score(d_train, f_train)
             print("Ada Boost Training Score: %s" % str(score))
             logger.info('[%s] : [INFO] Ada Boost training score: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(score))
 
             feature_imp = list(zip(d_train, ad.feature_importances_))
             print("Feature importance Ada Boost Training: ")
             print(list(zip(d_train, ad.feature_importances_)))
             logger.info('[%s] : [INFO] Ada Boost feature importance: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(feature_imp))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(feature_imp))
 
             pred_valid = ad.predict(d_test)
             print("Ada Boost Validation set prediction: ")
@@ -521,7 +525,7 @@ class SciClassification:
             score_valid = ad.score(d_test, f_test)
             print("Ada Boost validation set score: %s" % str(score_valid))
             logger.info('[%s] : [INFO] Ada Boost validation score: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(score_valid))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(score_valid))
         else:
             ad.fit(X, y)
             predict = ad.predict(X)
@@ -548,16 +552,16 @@ class SciClassification:
             sdfimp.to_csv(os.path.join(self.modelDir, dfimpCsv))
             if self.validation is None:
                 logger.info('[%s] : [INFO] Validation is set to None',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                            datetime.fromtimestamp(time.time()).strftime(log_format))
                 # return True
             else:
                 vfile = os.path.join(self.dataDir, self.validation)
                 logger.info('[%s] : [INFO] Validation data file is set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(vfile))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), str(vfile))
                 if not os.path.isfile(vfile):
                     print("Validation file %s not found" % vfile)
                     logger.error('[%s] : [ERROR] Validation file %s not found',
-                                 datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(vfile))
+                                 datetime.fromtimestamp(time.time()).strftime(log_format), str(vfile))
                 else:
                     df_valid = pd.read_csv(vfile)
                     if dropna:
@@ -582,7 +586,7 @@ class SciClassification:
         if "activation" not in settings:
             print("Received settings for Neural Networks are %s invalid!" % str(settings))
             logger.error('[%s] : [ERROR] Received settings for Neural Networks %s are invalid',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(settings))
+                         datetime.fromtimestamp(time.time()).strftime(log_format), str(settings))
             sys.exit(1)
 
         rfallowedSettings = ["max_iter", "activation", "solver", "batch_size", "learning_rate",
@@ -591,7 +595,7 @@ class SciClassification:
         for k, v in settings.items():
             if k in rfallowedSettings:
                 logger.info('[%s] : [INFO] Neural Network %s set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v)
                 print("Neural Network %s set to %s" % (k, v))
 
         if not isinstance(self.export, str):
@@ -614,7 +618,7 @@ class SciClassification:
             trainSize = 1.0 - self.validratio
             print("Neural Network training to validation ratio set to: %s" % str(self.validratio))
             logger.info('[%s] : [INFO] Neural Netowork training to validation ratio set to: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(self.validratio))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(self.validratio))
             d_train, d_test, f_train, f_test = self.__dataSplit(X, y, testSize=self.validratio, trainSize=trainSize)
             mlp.fit(d_train, f_train)
             predict = mlp.predict(d_train)
@@ -631,7 +635,7 @@ class SciClassification:
             score = mlp.score(d_train, f_train)
             print("Neural Network Training Score: %s" % str(score))
             logger.info('[%s] : [INFO] Neural Network training score: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(score))
             pred_valid = mlp.predict(d_test)
             print("Neural Network Validation set prediction: ")
             print(pred_valid)
@@ -640,7 +644,7 @@ class SciClassification:
             score_valid = mlp.score(d_test, f_test)
             print("Neural Network validation set score: %s" % str(score_valid))
             logger.info('[%s] : [INFO] Random forest validation score: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(score_valid))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(score_valid))
         else:
             mlp.fit(X, y)
             predict = mlp.predict(X)
@@ -659,16 +663,16 @@ class SciClassification:
 
             if self.validation is None:
                 logger.info('[%s] : [INFO] Validation is set to None',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                            datetime.fromtimestamp(time.time()).strftime(log_format))
                 # return True
             else:
                 vfile = os.path.join(self.dataDir, settings['validation'])
                 logger.info('[%s] : [INFO] Validation data file is set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(vfile))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), str(vfile))
                 if not os.path.isfile(vfile):
                     print("Validation file %s not found" % vfile)
                     logger.error('[%s] : [ERROR] Validation file %s not found',
-                                 datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(vfile))
+                                 datetime.fromtimestamp(time.time()).strftime(log_format), str(vfile))
                 else:
                     df_valid = pd.read_csv(vfile)
                     if dropna:
@@ -694,7 +698,7 @@ class SciClassification:
         if "splitter" not in settings:
             print("Received settings for Decision Tree are %s invalid!" % str(settings))
             logger.error('[%s] : [ERROR] Received settings for Decision Tree %s are invalid',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(settings))
+                         datetime.fromtimestamp(time.time()).strftime(log_format), str(settings))
             sys.exit(1)
 
         if settings['random_state'] == 'None':
@@ -717,7 +721,7 @@ class SciClassification:
         for k, v in settings.items():
             if k in dtallowedSettings:
                 logger.info('[%s] : [INFO] DecisionTree %s set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v)
                 print("DecisionTree %s set to %s" % (k, v))
 
         if not isinstance(self.export, str):
@@ -740,7 +744,7 @@ class SciClassification:
             trainSize = 1.0 - self.validratio
             print("Decision Tree training to validation ratio set to: %s" % str(self.validratio))
             logger.info('[%s] : [INFO] Random forest training to validation ratio set to: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(self.validratio))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(self.validratio))
             d_train, d_test, f_train, f_test = self.__dataSplit(X, y, testSize=self.validratio, trainSize=trainSize)
             dt.fit(d_train, f_train)
             predict = dt.predict(d_train)
@@ -757,13 +761,13 @@ class SciClassification:
             score = dt.score(d_train, f_train)
             print("Decision Tree Training Score: %s" % str(score))
             logger.info('[%s] : [INFO] Decision Tree training score: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(score))
 
             feature_imp = list(zip(d_train, dt.feature_importances_))
             print("Feature importance Decision Tree Training: ")
             print(list(zip(d_train, dt.feature_importances_)))
             logger.info('[%s] : [INFO] Decision Tree feature importance: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(feature_imp))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(feature_imp))
 
             pred_valid = dt.predict(d_test)
             print("Decision Tree Validation set prediction: ")
@@ -773,7 +777,7 @@ class SciClassification:
             score_valid = dt.score(d_test, f_test)
             print("Decision Tree validation set score: %s" % str(score_valid))
             logger.info('[%s] : [INFO] Random forest validation score: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(score_valid))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(score_valid))
         else:
             dt.fit(X, y)
             predict = dt.predict(X)
@@ -800,16 +804,16 @@ class SciClassification:
             sdfimp.to_csv(os.path.join(self.modelDir, dfimpCsv))
             if self.validation is None:
                 logger.info('[%s] : [INFO] Validation is set to None',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                            datetime.fromtimestamp(time.time()).strftime(log_format))
                 # return True
             else:
                 vfile = os.path.join(self.dataDir, self.validation)
                 logger.info('[%s] : [INFO] Validation data file is set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(vfile))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), str(vfile))
                 if not os.path.isfile(vfile):
                     print("Validation file %s not found" % vfile)
                     logger.error('[%s] : [ERROR] Validation file %s not found',
-                                 datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(vfile))
+                                 datetime.fromtimestamp(time.time()).strftime(log_format), str(vfile))
                 else:
                     df_valid = pd.read_csv(vfile)
                     if dropna:
@@ -836,36 +840,36 @@ class SciClassification:
         if self.cv is None:
             cv = self.cv
             logger.info('[{}] : [INFO] TPOT Cross Validation not set, using default'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
         elif isinstance(self.cv, int):
             logger.info('[{}] : [INFO] TPOT Cross Validation set to {} folds:'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.cv))
+                datetime.fromtimestamp(time.time()).strftime(log_format), self.cv))
             cv = self.cv
         else:
             try:
                 logger.info('[{}] : [INFO] TPOT Cross Validation set to use {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.cv['Type']))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.cv['Type']))
             except:
                 logger.error('[{}] : [ERROR] TPOT Cross Validation split generator type not set!'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 sys.exit(1)
             cv = self.__crossValidGenerator(self.cv)
         settings.update({'cv': cv})
         tp = TPOTClassifier(**settings)
         for k, v in settings.items():
             logger.info('[{}] : [INFO] TPOT parame {} set to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
         logger.info('[{}] : [INFO] Starting TPOT Optimization ...'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            datetime.fromtimestamp(time.time()).strftime(log_format)))
         try:
             pipeline_model = tp.fit(X, y)
         except Exception as inst:
             logger.error('[{}] : [ERROR] Failed to run TPOT optimization with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
             sys.exit(1)
         # print(pipeline_model.score(X, y))
         logger.info('[{}] : [INFO] TPOT optimized best pipeline is: {}'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+            datetime.fromtimestamp(time.time()).strftime(log_format),
             str(pipeline_model.fitted_pipeline_.steps)))
         # print(str(pipeline_model.fitted_pipeline_.steps))
         # print(pipeline_model.pareto_front_fitted_pipelines_)
@@ -891,15 +895,15 @@ class SciClassification:
             if classification_method == "dnn": # todo unify with other methods, not self contained as now
                 classification_type = classification_method
                 logger.info('[{}] : [INFO] Classification Method set to {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                 if not settings or settings is None:
                     logger.warning('[{}] : [WARN] No {} parameters defined using defaults'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                     settings = {}
                 else:
                     for k, v in settings.items():
                         logger.info('[{}] : [INFO] {} parameter {} set to {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, k,
+                            datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, k,
                             v))
                 n_inputs, n_outputs = X.shape[1], len(np.unique(y))
                 settings.update({"n_input_shape": n_inputs, "n_output_shape": n_outputs})
@@ -908,7 +912,7 @@ class SciClassification:
                     print(clf.summary())  # todo make toggle
                 except Exception as inst:
                     logger.error('[{}] : [INFO] Failed to instanciate {} with {} and {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type,
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type,
                         type(inst),
                         inst.args))
                     sys.exit(1)
@@ -925,7 +929,7 @@ class SciClassification:
                 try:
                     with joblib.parallel_backend('dask'):
                         logger.info('[{}] : [INFO] Using Dask backend for {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                     for train_index, test_index in sss.split(X, y):
                         Xtrain, Xtest = X.iloc[train_index], X.iloc[test_index]
                         ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
@@ -946,14 +950,14 @@ class SciClassification:
                         # Classification Report
                         y_pred = model.predict(Xtest)
                         logger.info('[{}] : [INFO] Computing classification report for fold {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), fold))
                         print(classification_report(ytest, y_pred, digits=4, target_names=y_definitions))
                         report = classification_report(ytest, y_pred, digits=4, output_dict=True, target_names=y_definitions)
                         df_classification_report = pd.DataFrame(report).transpose()
                         classification_rep_name = "{}_classification_Report_{}_Fold_{}.csv".format("DNN", self.export, fold)
                         df_classification_report.to_csv(os.path.join(self.modelDir, classification_rep_name))
                         logger.info('[{}] : [INFO] Computing imbalanced classification report for fold {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), fold))
                         print(classification_report_imbalanced(ytest, y_pred, digits=4, target_names=y_definitions))
                         imb_cf_report = classification_report_imbalanced(ytest, y_pred, output_dict=True, digits=4,
                                                                          target_names=y_definitions)
@@ -961,11 +965,11 @@ class SciClassification:
                         imb_df_report_name = f"DNN_Imbalanced_classification_Report_{self.export}_Fold_{fold}.csv"
                         df_imb_classification_report.to_csv(os.path.join(self.modelDir, imb_df_report_name))
                         logger.info('[{}] : [INFO] Computing confusion matrix for fold {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), fold))
                         self.__confusion_matrix(ytest, y_pred, definitions=y_definitions, model_name=self.export,
                                                 fold=fold)
                         logger.info('[{}] : [INFO] Saving Training History fold {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), fold))
                         # Saving History
                         df_history = pd.DataFrame(history.history)
                         history_name = "DNN_Fold{}_{}_history.csv".format(fold, self.export)
@@ -973,13 +977,13 @@ class SciClassification:
 
                         # Save Keras Model
                         logger.info('[{}] : [INFO] Saving Model for fold {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), fold))
                         model_name = "DNN_Fold{}_{}_model.keras".format(fold, self.export)
                         clf.save(os.path.join(self.modelDir, model_name))
                         fold += 1
                 except Exception as inst:
                     logger.error('[{}] : [ERROR] Failed to fit {} with {} and {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type,
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type,
                         type(inst), inst.args))
                     sys.exit(1)
                 return
@@ -991,97 +995,97 @@ class SciClassification:
                 classification_type = type(classification_method)
 
             logger.info('[{}] : [INFO] Classification Method set to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
             for k, v in classification_method.get_params().items():
                 logger.info('[{}] : [INFO] Classification parameter {} set to {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
             # print(classification_type)
             # sys.exit()
         else:
             classification_type = 'RandomForest'
             logger.info('[{}] : [INFO] Method set to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
             if not settings or settings is None:
                 logger.warning('[{}] : [WARN] No {} parameters defined using defaults'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                 settings = {}
             else:
                 for k, v in settings.items():
                     logger.info('[{}] : [INFO] {} parameter {} set to {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, k, v))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, k, v))
             try:
                 clf = RandomForestClassifier(**settings)
             except Exception as inst:
                 logger.error('[{}] : [INFO] Failed to instanciate {} with {} and {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, type(inst),
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, type(inst),
                     inst.args))
                 sys.exit(1)
 
         if self.cv is None:
             trainSize = 1.0 - self.validratio
             logger.info('[{}] : [INFO] {} training to validation ratio set to: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type,
+                datetime.fromtimestamp(time.time()).strftime(log_format), classification_type,
                 str(self.validratio)))
             if self.validation:
                 d_train, d_test, f_train, f_test = self.__dataSplit(X, y, testSize=self.validratio, trainSize=trainSize)
                 try:
                     with joblib.parallel_backend('dask'):
                         logger.info('[{}] : [INFO] Using Dask backend for {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                         if user_m:
                             classification_method.fit(d_train, f_train)
                         else:
                             clf.fit(d_train, f_train)
                 except Exception as inst:
                     logger.error('[{}] : [ERROR] Failed to fit {} with {} and {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type,
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type,
                         type(inst), inst.args))
                     sys.exit(1)
                 logger.info('[{}] : [INFO] Running Prediction on training data ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 if user_m:
                     predict = classification_method.predict(d_train)
                     logger.info('[{}] : [INFO] Calculating predict probabilities ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     predict_proba = classification_method.predict_proba(d_train)
                     score = classification_method.score(d_train, f_train)
                     logger.info('[{}] : [INFO] Score on training set is {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), score))
                 else:
                     predict = clf.predict(d_train)
                     logger.info('[{}] : [INFO] Calculating predict probabilities ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     predict_proba = clf.predict_proba(d_train)
                     score = clf.score(d_train, f_train)
                     logger.info('[{}] : [INFO] Score on training set is {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), score))
 
                 try:
                     feature_imp = list(zip(d_train, clf.feature_importances_))
                     logger.info('[{}] : [INFO] Exporting Feature Importance ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), score))
                     df_fimp = pd.DataFrame(feature_imp, columns=["Feature_Name", "Importance"])
                     df_fimp.to_csv(
                         os.path.join(self.modelDir, "{}_{}_Feature_Importance.csv".format(classification_type,
                                                                                           self.export)), index=False)
                 except:
                     logger.warning('[{}] : [WARN] Failed to export feature importance, not available for {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                 logger.info('[{}] : [INFO] Predicting on validation set ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), score))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), score))
 
                 if user_m:
                     pred_valid = classification_method.predict(d_test)
                     predict_val_proba = classification_method.predict_proba(d_test)
                     score_valid = classification_method.score(d_test, f_test)
                     logger.info('[{}] : [INFO] Score on validation set is {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), score_valid))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), score_valid))
                     logger.info('[{}] : [INFO] Exporting Training data with predictions ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     self.__appendPredictions("{}_train".format(classification_type), self.export, d_train, predict,
                                              predict_proba)
                     logger.info('[{}] : [INFO] Exporting Validation data with predictions ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     self.__appendPredictions("{}_valid".format(classification_type), self.export, d_test, pred_valid,
                                              predict_val_proba)
                 else:
@@ -1089,75 +1093,75 @@ class SciClassification:
                     predict_val_proba = clf.predict_proba(d_test)
                     score_valid = clf.score(d_test, f_test)
                     logger.info('[{}] : [INFO] Score on validation set is {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), score_valid))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), score_valid))
                     logger.info('[{}] : [INFO] Exporting Training data with predictions ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     self.__appendPredictions("{}_train".format(classification_type), self.export, d_train, predict,
                                              predict_proba)
                     logger.info('[{}] : [INFO] Exporting Validation data with predictions ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     self.__appendPredictions("{}_valid".format(classification_type), self.export, d_test, pred_valid,
                                              predict_val_proba)
             else:
                 try:
                     with joblib.parallel_backend('dask'):
                         logger.info('[{}] : [INFO] Using Dask backend for {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                         if user_m:
                             classification_method.fit(X, y)
                         else:
                             clf.fit(X, y)
                 except Exception as inst:
                     logger.error('[{}] : [ERROR] Failed to fit {} with {} and {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type,
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type,
                         type(inst), inst.args))
                     sys.exit(1)
                 logger.info('[{}] : [INFO] Running Prediction on training data ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 if user_m:
                     predict = classification_method.predict(X)
                     logger.info('[{}] : [INFO] Calculating predict probabilities ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     predict_proba = classification_method.predict_proba(X)
                     score = classification_method.score(X, y)
                     logger.info('[{}] : [INFO] Score on training set is {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), score))
                 else:
                     predict = clf.predict(X)
                     logger.info('[{}] : [INFO] Calculating predict probabilities ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     predict_proba = clf.predict_proba(X)
                     score = clf.score(X, y)
                     logger.info('[{}] : [INFO] Score on training set is {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), score))
                 try:
                     feature_imp = list(zip(X, clf.feature_importances_))
                     logger.info('[{}] : [INFO] Exporting Feature Importance ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), score))
                     df_fimp = pd.DataFrame(feature_imp, columns=["Feature_Name", "Importance"])
                     df_fimp.to_csv(
                         os.path.join(self.modelDir, "{}_{}_Feature_Importance.csv".format(classification_type,
                                                                                           self.export)), index=False)
                 except:
                     logger.warning('[{}] : [WARN] Failed to export feature importance, not available for {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                 logger.info('[{}] : [INFO] Exporting Training data with predictions ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 self.__appendPredictions("{}_train".format(classification_type), self.export, X, predict, predict_proba)
                 self.__serializemodel(clf, classification_type, mname)
         else:
             if isinstance(self.cv, int):
                 logger.info('[{}] : [INFO] {} Cross Validation set to {} folds:'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, self.cv))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, self.cv))
                 cv = self.cv
             else:
                 try:
                     logger.info('[{}] : [INFO] {} Cross Validation set to use {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type,
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type,
                         self.cv['Type']))
                 except:
                     logger.error('[{}] : [ERROR] Cross Validation split generator type not set!'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     sys.exit(1)
                 cv = self.__crossValidGenerator(self.cv)
             if self.scorers is None:
@@ -1167,7 +1171,7 @@ class SciClassification:
             try:
                 with joblib.parallel_backend('dask'):
                     logger.info('[{}] : [INFO] Using Dask backend for CV of {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                     if user_m:
                         if self.verbose:
 
@@ -1193,7 +1197,7 @@ class SciClassification:
                                                         return_estimator=self.returnestimators, cv=cv)
             except Exception as inst:
                 logger.error('[{}] : [ERROR] Failed to fit {} during Cross Validation with {} and {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, type(inst),
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, type(inst),
                     inst.args))
                 sys.exit(1)
 
@@ -1203,12 +1207,12 @@ class SciClassification:
                 i = 0
                 for est in cv_estimators:
                     logger.info('[{}] : [INFO] Saving CV Model {} ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), i))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), i))
                     mname = "{}_{}".format(self.export, i)
                     self.__serializemodel(est, classification_type, mname)
                     i += 1
             logger.info('[{}] : [INFO] Saving CV Metrics ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             cv_res = pd.DataFrame(cv_results)
             if isinstance(self.cv, dict):
                 cv_name = self.cv['Type']
@@ -1225,14 +1229,14 @@ class SciClassification:
             # Learning Curve
             if self.learningcurve is not None:
                 logger.info('[{}] : [INFO] Computing Learning Curve for {} of type {} ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.export,
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.export,
                     classification_type))
                 self.__learning_curve(classification_method, X, y, cv, model_name=classification_type)
 
             # Validation Curve
             if self.validationcurve is not None:
                 logger.info('[{}] : [INFO] Computing Validation Curve for {} of type {} ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.export,
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.export,
                     classification_type))
                 self.__validation_curve(classification_method, X, y, cv, model_name=classification_type)
 
@@ -1240,27 +1244,27 @@ class SciClassification:
             try:
                 if self.rfe is not None:
                     logger.info('[{}] : [INFO] Computing Recursive Feature Elimination for {} of type {} ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.export,
+                        datetime.fromtimestamp(time.time()).strftime(log_format), self.export,
                         classification_type))
                     rfe_model = self.__rfe(classification_method, X, y, cv=cv, model_name=classification_type)
                     mname = f"RFE_{self.export}"
                     self.__serializemodel(rfe_model, classification_type, mname)
             except Exception as inst:
                 logger.warning('[{}] : [WARN] Recursive Feature Elimination is not executable on {} with {} and {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                    datetime.fromtimestamp(time.time()).strftime(log_format),
                     classification_type, type(inst), inst.args))
 
             # Precision-Recall Curve
             if self.prc is not None:
                 logger.info('[{}] : [INFO] Computing Precision Recall Curve for {} of type {} ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.export,
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.export,
                     classification_type))
                 self.__precision_recall_curve(classification_method, X, y, definitions=y_definitions,
                                               model_name=classification_type)
             # ROC-AUC
             if self.rocauc is not None:
                 logger.info('[{}] : [INFO] Computing ROC Curves for {} of type {} ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.export,
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.export,
                     classification_type))
                 self.__rocauc_curves(classification_method, X, y, definitions=y_definitions,
                                      model_name=classification_type)
@@ -1268,7 +1272,7 @@ class SciClassification:
             # DecisionBoundaries Vizualizer
             if self.dboundary is not None:
                 logger.info('[{}] : [INFO] Computing Decision Boundary for {} of type {} ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.export,
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.export,
                     classification_type))
                 self.__decision_boundary(classification_method, X, y, definitions=y_definitions,
                                          model_name=classification_type )
@@ -1337,7 +1341,7 @@ class SciClassification:
             step = self.rfe['step']
         except Exception as inst:
             logger.error('[{}] : [ERROR] Recursive Feature Elimination parameter error with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
             sys.exit(1)
 
         viz = RFECV(model, cv=cv, scoring=scorer, step=step)
@@ -1361,7 +1365,7 @@ class SciClassification:
             with open(os.path.join(self.modelDir, f"RFE_drop_list.yaml"), 'w')as drop_yaml:
                 yaml.dump(drop_list, drop_yaml, default_flow_style=False)
             logger.info('[{}] : [INFO] Features eliminated:  {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), len(drop_list)))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), len(drop_list)))
 
         # Saving report
         df_rfe_report.to_csv(os.path.join(self.modelDir, f"RFE_Report_{self.export}_{model_name}.csv"))
@@ -1460,7 +1464,7 @@ class SciClassification:
             n_jobs = self.validationcurve['n_jobs']
         except Exception as inst:
             logger.error('[{}] : [ERROR] Validation Curve parameter error with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
             sys.exit(1)
         viz = ValidationCurve(model, param_name=param_name, param_range=param_range,
                               logx=True, cv=cv, scoring=scorer, n_jobs=n_jobs)
@@ -1497,7 +1501,7 @@ class SciClassification:
             n_jobs = self.learningcurve['n_jobs']
         except Exception as inst:
             logger.error('[{}] : [ERROR] Learning Curve parameter error with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
             sys.exit(1)
         viz = LearningCurve(model, cv=cv, scoring=scorer, train_sizes=sizes, n_jobs=n_jobs)
         viz.fit(X, y)
@@ -1543,7 +1547,7 @@ class SciClassification:
         for train_index, test_index in cv.split(X, y):
             # print("Starting fold {}".format(fold))
             logger.info('[{}] : [INFO] Starting CV Fold {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold))
+                datetime.fromtimestamp(time.time()).strftime(log_format), fold))
             Xtrain, Xtest = X.iloc[train_index], X.iloc[test_index]
             ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
 
@@ -1563,17 +1567,17 @@ class SciClassification:
                 score_testing = scorer(model, Xtest, ytest)
                 score_training = scorer(model, Xtrain, ytrain)
                 logger.info('[{}] : [INFO] Fold {} {} training score is {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold, k, score_training))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), fold, k, score_training))
 
                 logger.info('[{}] : [INFO] Fold {} {} testing score is {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold, k, score_testing))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), fold, k, score_testing))
 
                 cv_results[f"train_{k}"].append(score_training)
                 cv_results[f"test_{k}"].append(score_testing)
 
                 # Full classification report
                 logger.info('[{}] : [INFO] Computing classification report for fold {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), fold))
                 print(classification_report(ytest, ypred_test, digits=4, target_names=definitions))
                 cf_report = classification_report(ytest, ypred_test, output_dict=True, digits=4,
                                                   target_names=definitions)
@@ -1583,7 +1587,7 @@ class SciClassification:
 
                 # Full imbalanced classification report
                 logger.info('[{}] : [INFO] Computing imbalanced classification report for fold {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), fold))
                 print(classification_report_imbalanced(ytest, ypred_test, digits=4, target_names=definitions))
                 imb_cf_report = classification_report_imbalanced(ytest, ypred_test, output_dict=True, digits=4,
                                                                  target_names=definitions)
@@ -1593,7 +1597,7 @@ class SciClassification:
 
                 # Confusion matrix
                 logger.info('[{}] : [INFO] Computing confusion matrix for fold {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fold))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), fold))
                 self.__confusion_matrix(ytest, ypred_test, definitions, model_name=model_name, fold=fold)
 
                 # Feature Importance, if applicable
@@ -1601,7 +1605,7 @@ class SciClassification:
                     self.__feature_imp(model, model_name, X, fold)
                 except Exception:
                     logger.debug('[{}] : [DEBUG] Feature Importance not computable for {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), model_name))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), model_name))
                 fold += 1
         return cv_results
 
@@ -1670,37 +1674,37 @@ class SciClassification:
                 classification_type = type(classification_method)
 
             logger.info('[{}] : [INFO] Classification Method set to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
             for k, v in classification_method.get_params().items():
                 logger.info('[{}] : [INFO] Classification parameter {} set to {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
         else:
             classification_type = 'RandomForest'
             logger.info('[{}] : [INFO] Method set to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
             try:
                 clf = RandomForestClassifier()
             except Exception as inst:
                 logger.error('[{}] : [INFO] Failed to instanciate {} with {} and {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, type(inst),
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, type(inst),
                     inst.args))
                 sys.exit(1)
         if self.cv is None:
             cv = self.cv
             logger.info('[{}] : [INFO] {} Cross Validation not set, using default'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, self.cv))
+                datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, self.cv))
         elif isinstance(self.cv, int):
             logger.info('[{}] : [INFO] {} Cross Validation set to {} folds:'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, self.cv))
+                datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, self.cv))
             cv = self.cv
         else:
             try:
                 logger.info('[{}] : [INFO] {} Cross Validation set to use {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type,
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type,
                     self.cv['Type']))
             except Exception:
                 logger.error('[{}] : [ERROR] Cross Validation split generator type not set!'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 sys.exit(1)
             cv = self.__crossValidGenerator(self.cv)
         if self.scorers is None:
@@ -1717,7 +1721,7 @@ class SciClassification:
             rs_settings.update(hpoparam)
             for k, v in rs_settings.items():
                 logger.info('[{}] : [INFO] RandomSearch param {} set to {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
             if user_m:
                 rs_settings.update({"estimator": classification_method})
                 search = RandomizedSearchCV(**rs_settings)
@@ -1735,7 +1739,7 @@ class SciClassification:
             gs_settings.update(hpoparam)
             for k, v in gs_settings.items():
                 logger.info('[{}] : [INFO] GridSearch param {} set to {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
             if user_m:
                 gs_settings.update({"estimator": classification_method})
                 search = GridSearchCV(**gs_settings)
@@ -1751,7 +1755,7 @@ class SciClassification:
             ev_settings.update(hpoparam)
             for k, v in ev_settings.items():
                 logger.info('[{}] : [INFO] RandomSearch param {} set to {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
             if user_m:
                 ev_settings.update({"estimator": classification_method})
                 search = EvolutionaryAlgorithmSearchCV(**ev_settings)
@@ -1761,7 +1765,7 @@ class SciClassification:
                 search = EvolutionaryAlgorithmSearchCV(**ev_settings)
         else:
             logger.error('[{}] : [ERROR] Invalid HPO method specified: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), hpomethod))
+                datetime.fromtimestamp(time.time()).strftime(log_format), hpomethod))
             sys.exit(2)
         try:
             refit = hpoparam['refit']
@@ -1770,36 +1774,36 @@ class SciClassification:
                 refit = 0
             else:
                 logger.error('[{}] : [ERROR] HPO param must be set, with {} and {}! Exiting!'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
                 sys.exit(1)
         try:
             with joblib.parallel_backend('dask'):
                 logger.info('[{}] : [INFO] Using Dask backend for HPO of {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type))
                 sr_clf = search.fit(X, y)
         except Exception as inst:
             logger.error('[{}] : [ERROR] Failed to fit {} during Cross Validation with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, type(inst),
+                datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, type(inst),
                 inst.args))
             sys.exit(1)
         if isinstance(refit, str) or refit:
             # print(search.best_score_)
             if isinstance(refit, str):
                 logger.info('[{}] : [INFO] Best HPO {} score {} with refit time of {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), refit, sr_clf.best_score_,
+                    datetime.fromtimestamp(time.time()).strftime(log_format), refit, sr_clf.best_score_,
                     sr_clf.refit_time_))
             else:
                 logger.info('[{}] : [INFO] Best HPO score {} with refit time of {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), sr_clf.best_score_,
+                    datetime.fromtimestamp(time.time()).strftime(log_format), sr_clf.best_score_,
                     sr_clf.refit_time_))
             for k, v in sr_clf.best_params_.items():
                 logger.info('[{}] : [INFO] Classifier {} param {} best value {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, k, v))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, k, v))
             best_conf_loc = os.path.join(self.modelDir,
                                          "{}_HPO_{}_best_{}_config.yaml".format(classification_type, hpomethod,
                                                                                 self.export))
             logger.info('[{}] : [INFO] Saving best configuration to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), best_conf_loc))
+                datetime.fromtimestamp(time.time()).strftime(log_format), best_conf_loc))
 
             with open(best_conf_loc, 'w') as yaml_config:
                 yaml.dump(sr_clf.best_params_, yaml_config, default_flow_style=False)
@@ -1813,24 +1817,24 @@ class SciClassification:
             cv_res_loc = os.path.join(self.modelDir,
                                       "{}_HPO{}_CV_{}_restults.csv".format(classification_type, hpomethod, cv_name))
             logger.info('[{}] : [INFO] Saving HPO {} {} CV Metrics to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), hpomethod, cv, cv_res_loc))
+                datetime.fromtimestamp(time.time()).strftime(log_format), hpomethod, cv, cv_res_loc))
             cv_res = pd.DataFrame(sr_clf.cv_results_)
             cv_res.to_csv(cv_res_loc, index=False)
             logger.info('[{}] : [INFO] Saving Best Estimator ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), hpomethod, cv, cv_res_loc))
+                datetime.fromtimestamp(time.time()).strftime(log_format), hpomethod, cv, cv_res_loc))
             self.__serializemodel(model=sr_clf.best_estimator_, method=classification_type, mname=self.export)
         elif hpomethod == "Evol":
             logger.info('[{}] : [INFO] Best HPO {} score {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type,
+                datetime.fromtimestamp(time.time()).strftime(log_format), classification_type,
                 search.best_score_))
             for k, v in search.best_params_.items():
                 logger.info('[{}] : [INFO] Classifier {} param {} best value {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), classification_type, k, v))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), classification_type, k, v))
             best_conf_loc = os.path.join(self.modelDir,
                                          "{}_HPO_{}_best_{}_config.yaml".format(classification_type, hpomethod,
                                                                                 self.export))
             logger.info('[{}] : [INFO] Saving best configuration to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), best_conf_loc))
+                datetime.fromtimestamp(time.time()).strftime(log_format), best_conf_loc))
 
             with open(best_conf_loc, 'w') as yaml_config:
                 yaml.dump(search.best_params_, yaml_config, default_flow_style=False)
@@ -1845,16 +1849,16 @@ class SciClassification:
             cv_res_loc = os.path.join(self.modelDir,
                                       "{}_HPO{}_CV_{}_restults.csv".format(classification_type, hpomethod, cv_name))
             logger.info('[{}] : [INFO] Saving HPO {} {} CV Metrics to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), hpomethod, cv, cv_res_loc))
+                datetime.fromtimestamp(time.time()).strftime(log_format), hpomethod, cv, cv_res_loc))
             search.cv_results_.pop('nan_test_score?')
             cv_res = pd.DataFrame(search.cv_results_)
             cv_res.to_csv(cv_res_loc, index=False)
             logger.info('[{}] : [INFO] Saving Best Estimator ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), hpomethod, cv, cv_res_loc))
+                datetime.fromtimestamp(time.time()).strftime(log_format), hpomethod, cv, cv_res_loc))
             self.__serializemodel(model=search.best_estimator_, method=classification_type, mname=self.export)
         else:
             logger.warning('[{}] : [WARN] Skipping HPO Report ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
 
     def __appendPredictions(self,
                             method,
@@ -1865,16 +1869,16 @@ class SciClassification:
         fpath = "{}_{}.csv".format(method, mname)
         fname = os.path.join(self.modelDir, fpath)
         logger.info('[{}] : [INFO] Appending predictions to  data ... '.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            datetime.fromtimestamp(time.time()).strftime(log_format)))
         # print(list(pred))
         data['pred'] = pred
         if pred_proba is not None:
             logger.info('[{}] : [INFO] Appending prediction probabilities to  data ... '.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             data['prob_0'] = pred_proba[:, 0]
             data['prob_1'] = pred_proba[:, 1]
         logger.info('[{}] : [INFO] Saving to {}.'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fname))
+            datetime.fromtimestamp(time.time()).strftime(log_format), fname))
         data.to_csv(fname, index=True)
 
     def randomForest(self, settings,
@@ -1883,7 +1887,7 @@ class SciClassification:
         if "min_weight_faction_leaf" not in settings:
             print("Received settings for RandomForest are %s invalid!" % str(settings))
             logger.error('[%s] : [ERROR] Received settings for RandomForest %s are invalid',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(settings))
+                         datetime.fromtimestamp(time.time()).strftime(log_format), str(settings))
             sys.exit(1)
 
         if settings['random_state'] == 'None':
@@ -1905,7 +1909,7 @@ class SciClassification:
         for k, v in settings.items():
             if k in rfallowedSettings:
                 logger.info('[%s] : [INFO] RandomForest %s set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v)
                 print("RandomForest %s set to %s" % (k, v))
 
         if not isinstance(self.export, str):
@@ -1932,7 +1936,7 @@ class SciClassification:
             trainSize = 1.0 - self.validratio
             print("Random forest training to validation ratio set to: %s" % str(self.validratio))
             logger.info('[%s] : [INFO] Random forest training to validation ratio set to: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(self.validratio))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(self.validratio))
             d_train, d_test, f_train, f_test = self.__dataSplit(X, y, testSize=self.validratio, trainSize=trainSize)
             clf.fit(d_train, f_train)
             predict = clf.predict(d_train)
@@ -1949,13 +1953,13 @@ class SciClassification:
             score = clf.score(d_train, f_train)
             print("Random Forest Training Score: %s" % str(score))
             logger.info('[%s] : [INFO] Random forest training score: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(score))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(score))
 
             feature_imp = list(zip(d_train, clf.feature_importances_))
             print("Feature importance Random Forest Training: ")
             print(list(zip(d_train, clf.feature_importances_)))
             logger.info('[%s] : [INFO] Random forest feature importance: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(feature_imp))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(feature_imp))
 
             pred_valid = clf.predict(d_test)
             print("Random Forest Validation set prediction: ")
@@ -1965,7 +1969,7 @@ class SciClassification:
             score_valid = clf.score(d_test, f_test)
             print("Random Forest validation set score: %s" % str(score_valid))
             logger.info('[%s] : [INFO] Random forest validation score: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(score_valid))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(score_valid))
         else:
             clf.fit(X, y)
             predict = clf.predict(X)
@@ -1992,16 +1996,16 @@ class SciClassification:
             sdfimp.to_csv(os.path.join(self.modelDir, dfimpCsv))
             if self.validation is None:
                 logger.info('[%s] : [INFO] Validation is set to None',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                            datetime.fromtimestamp(time.time()).strftime(log_format))
                 # return True
             else:
                 vfile = os.path.join(self.dataDir, settings['validation'])
                 logger.info('[%s] : [INFO] Validation data file is set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(vfile))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), str(vfile))
                 if not os.path.isfile(vfile):
                     print("Validation file %s not found" % vfile)
                     logger.error('[%s] : [ERROR] Validation file %s not found',
-                                 datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(vfile))
+                                 datetime.fromtimestamp(time.time()).strftime(log_format), str(vfile))
                 else:
                     df_valid = pd.read_csv(vfile)
                     if dropna:
@@ -2023,13 +2027,13 @@ class SciClassification:
     def trainingDataGen(self, settings, data=None, dropna=True, onlyAno=True):
         print("Starting training data generation ....")
         logger.info('[%s] : [INFO] Starting training data generation ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         df = self.__loadData(data, dropna)
         print(df.index.name)
         if df.index.name is None:
             df.set_index('key', inplace=True)
         logger.info('[%s] : [INFO] Input Dataframe shape: %s',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(df.shape))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), str(df.shape))
 
         if 'iso_n_estimators' not in list(settings.keys()):
             settings['iso_n_estimators'] = 100
@@ -2069,7 +2073,7 @@ class SciClassification:
         for k, v in settings.items():
             if k in allowedIso:
                 logger.info('[%s] : [INFO] IsolationForest %s set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v)
                 print("IsolationForest %s set to %s" % (k, v))
 
         try:
@@ -2080,7 +2084,7 @@ class SciClassification:
                                   random_state=settings['iso_random_state'], verbose=settings['iso_verbose'])
         except Exception as inst:
             logger.error('[%s] : [ERROR] Cannot instanciate isolation forest with %s and %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             print("Error while  instanciating isolation forest with %s and %s" % (type(inst), inst.args))
             sys.exit(1)
 
@@ -2096,7 +2100,7 @@ class SciClassification:
         print("Number of anomalies detected: %s" % str(len(anomalies)))
 
         logger.info('[%s] : [INFO] Number of anomalies detected: %s',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(len(anomalies)))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), str(len(anomalies)))
 
         # Generate anomalydataframe/ anomalies only
         slist = []
@@ -2107,11 +2111,11 @@ class SciClassification:
         #     anomalyFrame.set_index('key', inplace=True)
 
         logger.info('[%s] : [INFO] Anomaly Dataframe shape: %s',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(anomalyFrame.shape))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), str(anomalyFrame.shape))
 
         if self.checkpoint:
             logger.info('[%s] : [INFO] Anomalies checkpointed.',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(len(anomalies)))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(len(anomalies)))
             anomalyFrame.to_csv(os.path.join(self.dataDir, 'AnomalyFrame.csv'))
 
         print("Normalizing data ...")
@@ -2137,7 +2141,7 @@ class SciClassification:
         for k, v in settings.items():
             if k in allowedDB:
                 logger.info('[%s] : [INFO] SDBSCAN %s set to %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v)
                 print("SDBSCAN %s set to %s" % (k, v))
 
         # db = DBSCAN(eps=0.9, min_samples=40).fit(X)
@@ -2149,7 +2153,7 @@ class SciClassification:
                         n_jobs=int(settings['db_n_jobs'])).fit(X)
         except Exception as inst:
             logger.error('[%s] : [ERROR] Cannot instanciate sDBSCAN with %s and %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             print("Error while  instanciating sDBSCAN with %s and %s" % (type(inst), inst.args))
             sys.exit(1)
         print("Finshed  Anomaly clustering.")
@@ -2163,7 +2167,7 @@ class SciClassification:
 
         print('Estimated number of clusters: %d' % n_clusters_)
         logger.info('[%s] : [INFO] Estimated number of clusters: %d',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), n_clusters_)
+                    datetime.fromtimestamp(time.time()).strftime(log_format), n_clusters_)
 
         # Add labels to target column
         print("Adding labels to data ...")
@@ -2203,7 +2207,7 @@ class SciClassification:
             df = df.fillna(0)
             if df.isnull().values.any():
                 logger.error('[%s] : [ERROR] Found null values in anomaly dataframe after processing!',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                             datetime.fromtimestamp(time.time()).strftime(log_format))
                 print('Found null values in anomaly dataframe after processing!')
                 sys.exit(1)
             if self.checkpoint:
@@ -2215,7 +2219,7 @@ class SciClassification:
         scorer_dict = {}
         if 'Scorer_list' in scorers.keys():
             logger.info('[{}] : [INFO] Found scorer list in config'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             try:
                 scorer_lst = scorers['Scorer_list']
                 for s in scorer_lst:
@@ -2223,7 +2227,7 @@ class SciClassification:
                 del scorers['Scorer_list']
             except Exception as inst:
                 logger.error('[{}] : [ERROR] Error while parsing scorer list with {} and {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
                 sys.exit(2)
         for user_name, sc_name in scorers.items():
             try:
@@ -2231,10 +2235,10 @@ class SciClassification:
                 scorer_instance = getattr(sc_mod, sc_name)
                 scorer = make_scorer(scorer_instance)
                 logger.info('[{}] : [INFO] Found user defined scorer. Initializing {} '.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), sc_name))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), sc_name))
             except Exception as inst:
                 logger.error('[{}] : [ERROR] Error while initializing scorer {} with {} and {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), sc_name, type(inst), inst.args))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), sc_name, type(inst), inst.args))
                 sys.exit(2)
             scorer_dict[user_name] = scorer
         return scorer_dict
@@ -2243,11 +2247,11 @@ class SciClassification:
         if not self.checkpoint:
             dfile = os.path.join(self.dataDir, self.training)
             logger.info('[%s] : [INFO] Data file is set to %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(dfile))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(dfile))
             if not os.path.isfile(dfile):
                 print("Training file %s not found" % dfile)
                 logger.error('[%s] : [ERROR] Training file %s not found',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(dfile))
+                             datetime.fromtimestamp(time.time()).strftime(log_format), str(dfile))
                 sys.exit(1)
             else:
                 df = pd.read_csv(dfile)
@@ -2255,7 +2259,7 @@ class SciClassification:
             if not isinstance(data, pd.core.frame.DataFrame):
                 print("Data is of type %s and not dataframe, exiting!" % type(data))
                 logger.error('[%s] : [ERROR] Data is of type %s and not dataframe, exiting!',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(type(data)))
+                             datetime.fromtimestamp(time.time()).strftime(log_format), str(type(data)))
                 sys.exit(1)
             df = data
         if df.index.name is None:
@@ -2275,7 +2279,7 @@ class SciClassification:
         CV_rfc = GridSearchCV(estimator=est, param_grid=param_grid, cv=5)
         CV_rfc.fit(X, y)
         logger.info('[%s] : [INFO] Best parameters are: %s',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), CV_rfc.best_params_)
+                    datetime.fromtimestamp(time.time()).strftime(log_format), CV_rfc.best_params_)
         print('Best parameters are: %s' % CV_rfc.best_params_)
         return CV_rfc.best_params_
 
@@ -2290,28 +2294,28 @@ class SciClassification:
         lmodel = glob.glob(os.path.join(self.modelDir, ("%s_%s.pkl" % (method, model))))
         if not lmodel:
             logger.warning('[%s] : [WARN] No %s model with the name %s found',
-                           datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), method, model)
+                           datetime.fromtimestamp(time.time()).strftime(log_format), method, model)
             return 0
         else:
             smodel = pickle.load(open(lmodel[0], "rb"))
             logger.info('[%s] : [INFO] Succesfully loaded %s model with the name %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), method, model)
+                        datetime.fromtimestamp(time.time()).strftime(log_format), method, model)
             return smodel
 
     def __crossValidGenerator(self, cv_dict):
 
         type_cv = cv_dict['Type']
         logger.info('[{}] : [INFO] Instanciating CV Generator {} ...'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type_cv))
+            datetime.fromtimestamp(time.time()).strftime(log_format), type_cv))
         try:
             params = cv_dict['Params']
             for param_name, param_value in params.items():
                 logger.info('[{}] : [DEBUG] {} parameter {} set to {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                    datetime.fromtimestamp(time.time()).strftime(log_format),
                     type_cv, param_name, param_value))
         except:
             logger.warning('[{}] : [WARN] Params not set for {}, using default'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type_cv))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type_cv))
             params = {}
         try:
             cv_gen_mod = importlib.import_module(self.sksplitgen)
@@ -2319,7 +2323,7 @@ class SciClassification:
             cv_gen = cv_gen_instance(**params)
         except Exception as inst:
             logger.error('[{}] : [ERROR] Failed to instanciate CV Generator {} with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type_cv, type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type_cv, type(inst), inst.args))
         return cv_gen
 
     def __serializemodel(self, model, method, mname):
@@ -2333,7 +2337,7 @@ class SciClassification:
         fname = os.path.join(self.modelDir, fpath)
         pickle.dump(model, open(fname, "wb"))
         logger.info('[{}] : [INFO] Serializing model {} at {}'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), method, fpath))
+            datetime.fromtimestamp(time.time()).strftime(log_format), method, fpath))
 
     def __normalize(self, data):
         normalized_data = StandardScaler().fit_transform(data)

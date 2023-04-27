@@ -34,7 +34,7 @@ import sys
 import glob
 from sklearn.decomposition import SparsePCA, PCA
 import pyod
-from util import ut2hum
+from util import ut2hum, log_format
 import shap
 
 
@@ -62,33 +62,33 @@ class SciCluster:
 
         if scaler is None:
             logger.warning('[{}] : [WARN] Scaler not defined'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
         else:
             logger.info('[{}] : [INFO] Scaling data ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             data = scaler.fit_transform(data)
 
         if not settings or settings is None:
             logger.warning('[{}] : [WARN] No DBScan parameters defined using default'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             settings = {}
         else:
             for k, v in settings.items():
                 logger.info('[{}] : [INFO] DBScan parameter {} set to {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
 
         try:
             db = DBSCAN(**settings).fit(data)
         except Exception as inst:
             logger.error('[{}] : [INFO] Failed to instanciate DBScan with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
             sys.exit(1)
         labels = db.labels_
         logger.info('[{}] : [INFO] DBScan labels: {} '.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), labels))
+                datetime.fromtimestamp(time.time()).strftime(log_format), labels))
         n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
         logger.info('[{}] : [INFO] DBScan estimated number of clusters {} '.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), n_clusters_))
+            datetime.fromtimestamp(time.time()).strftime(log_format), n_clusters_))
         self.__serializemodel(db, 'sdbscan', mname)
         return db
 
@@ -105,7 +105,7 @@ class SciCluster:
         '''
         for k, v in settings.items():
             logger.info('[%s] : [INFO] SDBSCAN %s set to %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), k, v)
         sdata = StandardScaler().fit_transform(data)
         try:
             db = DBSCAN(eps=float(settings['eps']), min_samples=int(settings['min_samples']), metric=settings['metric'],
@@ -113,7 +113,7 @@ class SciCluster:
                         n_jobs=int(settings['n_jobs'])).fit(sdata)
         except Exception as inst:
             logger.error('[%s] : [ERROR] Cannot instanciate sDBSCAN with %s and %s',
-                           datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                           datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             print("Error while  instanciating sDBSCAN with %s and %s" % (type(inst), inst.args))
             sys.exit(1)
         labels = db.labels_
@@ -137,38 +137,38 @@ class SciCluster:
         '''
         if not settings or settings is None:
             logger.warning('[{}] : [WARN] No IsolationForest parameters defined using defaults'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             # print(settings)
             settings = {}
         else:
             for k, v in settings.items():
                 logger.info('[{}] : [INFO] IsolationForest parameter {} set to {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
         try:
 
             clf = IsolationForest(**settings)
             # print(clf)
         except Exception as inst:
             logger.error('[{}] : [INFO] Failed to instanciate IsolationForest with {} and {}'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+            datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
             sys.exit(1)
 
         try:
             with joblib.parallel_backend('dask'):
                 logger.info('[{}] : [INFO] Using Dask backend for IsolationForest'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 clf.fit(data)
         except Exception as inst:
             logger.error('[{}] : [ERROR] Failed to fit IsolationForest with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
             sys.exit(1)
 
         predict = clf.predict(data)
         anoOnly = np.argwhere(predict == -1)
         logger.info('[{}] : [INFO] Found {} anomalies in training dataset of shape {}.'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), len(anoOnly), data.shape))
+                datetime.fromtimestamp(time.time()).strftime(log_format), len(anoOnly), data.shape))
         logger.info('[{}] : [DEBUG] Predicted Anomaly Array {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), predict))
+                datetime.fromtimestamp(time.time()).strftime(log_format), predict))
         self.__serializemodel(clf, 'isoforest', mname)
         self.__appendPredictions(method='isoforest', mname=mname, data=data, pred=predict)
 
@@ -198,14 +198,14 @@ class SciCluster:
         # print type(settings['max_samples'])
         for k, v in settings.items():
             logger.info('[%s] : [INFO] IsolationForest %s set to %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), k, v)
             print("IsolationForest %s set to %s" % (k, v))
         try:
             clf = IsolationForest(n_estimators=int(settings['n_estimators']), max_samples=settings['max_samples'], contamination=float(settings['contamination']), bootstrap=settings['bootstrap'],
                         max_features=float(settings['max_features']), n_jobs=int(settings['n_jobs']), random_state=settings['random_state'], verbose=settings['verbose'])
         except Exception as inst:
             logger.error('[%s] : [ERROR] Cannot instanciate isolation forest with %s and %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             sys.exit(1)
         # clf = IsolationForest(max_samples=100, random_state=rng)
         # print "*&*&*&& %s" % type(data)
@@ -213,7 +213,7 @@ class SciCluster:
             clf.fit(data)
         except Exception as inst:
             logger.error('[%s] : [ERROR] Cannot fit isolation forest model with %s and %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             sys.exit(1)
         predict = clf.predict(data)
         print("Anomaly Array:")
@@ -238,10 +238,10 @@ class SciCluster:
             if data.shape[0]:
                 if isinstance(smodel, IsolationForest):
                     logger.info('[{}] : [INFO] Loading predictive model IsolationForest ').format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
                     for k, v in smodel.get_params().items():
                         logger.info('[{}] : [INFO] Predict model parameter {} set to {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
                     # print("Contamination -> %s" % smodel.contamination)
                     # print("Max_Features -> %s" % smodel.max_features)
                     # print("Max_Samples -> %s" % smodel.max_samples_)
@@ -249,18 +249,18 @@ class SciCluster:
                     try:
                         dpredict = smodel.predict(data)
                         logger.debug('[{}] : [DEBUG] IsolationForest prediction array: {}').format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(dpredict))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), str(dpredict))
                     except Exception as inst:
                         logger.error('[%s] : [ERROR] Error while fitting isolationforest model to event with %s and %s',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                             datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
                         dpredict = 0
 
                 elif isinstance(smodel, DBSCAN):
                     logger.info('[{}] : [INFO] Loading predictive model DBSCAN ').format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
                     for k, v in smodel.get_params().items():
                         logger.info('[{}] : [INFO] Predict model parameter {} set to {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
                     # print("Leaf_zise -> %s" % smodel.leaf_size)
                     # print("Algorithm -> %s" % smodel.algorithm)
                     # print("EPS -> %s" % smodel.eps)
@@ -270,13 +270,13 @@ class SciCluster:
                         dpredict = smodel.fit_predict(data)
                     except Exception as inst:
                         logger.error('[%s] : [ERROR] Error while fitting sDBSCAN model to event with %s and %s',
-                                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst),
+                                     datetime.fromtimestamp(time.time()).strftime(log_format), type(inst),
                                      inst.args)
                         dpredict = 0
             else:
                 dpredict = 0
                 logger.warning('[%s] : [WARN] Dataframe empty with shape (%s,%s)',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(data.shape[0]),
+                             datetime.fromtimestamp(time.time()).strftime(log_format), str(data.shape[0]),
                              str(data.shape[1]))
                 print("Empty dataframe received with shape (%s,%s)" % (str(data.shape[0]),
                              str(data.shape[1])))
@@ -291,14 +291,13 @@ class SciCluster:
         anomaliesDict = {}
         anomaliesDict['anomalies'] = anomalieslist
         logger.info('[%s] : [INFO] Detected anomalies with model %s using method %s are -> %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), model, method, str(anomaliesDict))
+                         datetime.fromtimestamp(time.time()).strftime(log_format), model, method, str(anomaliesDict))
         return anomaliesDict
 
     def dask_detect(self,
                     method,
                     model,
                     data,
-                    anomaly_label=-1 # Todo make anomaly label user definable
                     ):
         smodel = self.__loadClusterModel(method, model)
         anomaliesList = []
@@ -310,20 +309,21 @@ class SciCluster:
             if data.shape[0]:
                 try:
                     logger.info('[{}] : [INFO] Loading predictive model {} '.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(smodel).split('(')[0]))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), str(smodel).split('(')[0]))
                     for k, v in smodel.get_params().items():
                         logger.info('[{}] : [INFO] Predict model parameter {} set to {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
                         dpredict = smodel.predict(data)
                 except Exception as inst:
                     logger.error('[{}] : [ERROR] Failed to load predictive model with {} and {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
                     dpredict = 0
             else:
                 dpredict = 0
                 logger.warning('[{}] : [WARN] DataFrame is empty with shape {} '.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(data.shape)))
-        if list(np.unique(dpredict)) == [0, 1] or isinstance(smodel, pyod.models.iforest.IForest):
+                datetime.fromtimestamp(time.time()).strftime(log_format), str(data.shape)))
+        from pyod.models.iforest import IForest  # pyod.models.iforest.IForest
+        if list(np.unique(dpredict)) == [0, 1] or isinstance(smodel, IForest):
             anomaly_label = 1
         else:
             anomaly_label = -1
@@ -342,8 +342,12 @@ class SciCluster:
             count = 0
             for an in anomalyArray:
                 anomalies = {}
-                anomalies['utc'] = int(data.iloc[an[0]].name)
-                anomalies['hutc'] = ut2hum(int(data.iloc[an[0]].name))
+                if pd._libs.tslibs.timestamps.Timestamp == type(data.iloc[an[0]].name):
+                    anomalies['utc'] = data.iloc[an[0]].name.timestamp()
+                    anomalies['hutc'] = str(data.iloc[an[0]].name)
+                else:
+                    anomalies['utc'] = int(data.iloc[an[0]].name)
+                    anomalies['hutc'] = ut2hum(int(data.iloc[an[0]].name))
                 if shap_values_p:
                     anomalies['analysis'] = self.__shap_force_layout(shap_values=shap_values,
                                                                      instance=count)
@@ -352,7 +356,7 @@ class SciCluster:
 
         anomaliesDict['anomalies'] = anomaliesList
         logger.info('[{}] : [INFO] Detected {} anomalies with model {} using method {} '.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), len(anomaliesList), model,
+            datetime.fromtimestamp(time.time()).strftime(log_format), len(anomaliesList), model,
             str(smodel).split('(')[0]))
         return anomaliesDict
 
@@ -398,7 +402,7 @@ class SciCluster:
             shap_values_d['base_values'] = shap_values[instance].base_values
         except Exception as inst:
             logger.error('[{}] : [ERROR] Error while executing shap processing with {} and {} '.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
         return shap_values_d
 
     def __shap_heatmap(self,
@@ -452,26 +456,26 @@ class SciCluster:
                            ):
         try:
             logger.info('[{}] : [INFO] Loading Clustering method {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(cluster_method)))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(cluster_method)))
             # delattr(cluster_method, 'behaviour')
             # del cluster_method.__dict__['behaviour']
             for k, v in cluster_method.get_params().items():
                 logger.info('[{}] : [INFO] Method parameter {} set to {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), k, v))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), k, v))
             try:
                 with joblib.parallel_backend('dask'):
                     logger.info('[{}] : [INFO] Using Dask backend for user defined method'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     clf = cluster_method.fit(data)
             except Exception as inst:
                 logger.error('[{}] : [ERROR] Failed to fit user defined method with dask backend with {} and {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
                 logger.warning('[{}] : [WARN] using default process based backend for user defined method'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
                 clf = cluster_method.fit(data)
         except Exception as inst:
             logger.error('[{}] : [ERROR] Failed to fit {} with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(cluster_method),
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(cluster_method),
                 type(inst), inst.args))
             sys.exit(1)
         predictions = clf.predict(data)
@@ -482,9 +486,9 @@ class SciCluster:
             anomaly_marker = -1
             normal_marker = 1
         logger.info('[{}] : [INFO] Number of Predicted Anomalies {} from a total of {} datapoints.'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), list(predictions).count(anomaly_marker), len(list(predictions))))
+            datetime.fromtimestamp(time.time()).strftime(log_format), list(predictions).count(anomaly_marker), len(list(predictions))))
         logger.debug('[{}] : [DEBUG] Predicted Anomaly Array {}'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), predictions))
+            datetime.fromtimestamp(time.time()).strftime(log_format), predictions))
         fname = str(clf).split('(')[0]
         self.__serializemodel(clf, fname, mname)
         self.__plot_feature_sep(data, predictions, method=fname, mname=mname, anomaly_label=anomaly_marker,
@@ -497,7 +501,7 @@ class SciCluster:
         fpath = "{}_{}.csv".format(method, mname)
         fname = os.path.join(self.modelDir, fpath)
         logger.info('[{}] : [INFO] Appending predictions to data ... Saving to {}.'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), fname))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), fname))
         data['ano'] = pred
         data.to_csv(fname, index=True)
 
@@ -514,7 +518,7 @@ class SciCluster:
         fname = os.path.join(self.modelDir, fpath)
         pickle.dump(model, open(fname, "wb"))
         logger.info('[{}] : [INFO] Serializing model {} at {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), method, fpath))
+                datetime.fromtimestamp(time.time()).strftime(log_format), method, fpath))
 
     def __loadClusterModel(self, method,
                            model):
@@ -526,12 +530,12 @@ class SciCluster:
         lmodel = glob.glob(os.path.join(self.modelDir, ("%s_%s.pkl" % (method, model))))
         if not lmodel:
             logger.warning('[%s] : [WARN] No %s model with the name %s found',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), method, model)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), method, model)
             return 0
         else:
             smodel = pickle.load(open(lmodel[0], "rb"))
             logger.info('[%s] : [INFO] Succesfully loaded %s model with the name %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), method, model)
+                        datetime.fromtimestamp(time.time()).strftime(log_format), method, model)
             return smodel
 
     def __decision_boundary(self,
@@ -549,7 +553,7 @@ class SciCluster:
         :param anomaly_label: label for anomaly instances (differs from method to method)
         """
         logger.info('[{}] : [INFO] Computing PCA with 2 components for decision boundary ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
         transformer = PCA(n_components=2)
         transformer.fit(data)
         data = transformer.transform(data)
@@ -560,7 +564,7 @@ class SciCluster:
                 max_features=data.shape[-1])  # becouse we have only two features we must override previous setting
         except ValueError:
             logger.debug('[{}] : [Debug] Model not effected by max feature parameter, setting encoding and decoding size'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             model.set_params(
                 encoder_neurons=[2, 64, 32],
                 decoder_neurons=[32, 64, 2]

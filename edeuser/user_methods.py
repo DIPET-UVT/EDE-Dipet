@@ -97,7 +97,7 @@ def wrapper_analysis_corr(name,
                                    columns=columns,
                                    location=location):
         data = data[columns]
-        data = data.set_index('time', inplace=False)
+        # data = data.set_index('time', inplace=False)
         data = data.astype(float)
         # print(data.shape)
         # print(data.dtypes)
