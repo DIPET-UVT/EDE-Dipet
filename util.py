@@ -46,6 +46,7 @@ modelDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
 #     saver = Saver(classname="weka.core.converters.ArffSaver")
 #     saver.save_file(data, outdata)
 
+log_format = '%Y-%m-%d %H:%M:%S'
 
 def queryParser(query):
     '''
@@ -57,32 +58,32 @@ def queryParser(query):
         if r.split(':')[0] == 'yarn':
             try:
                 type['yarn'] = r.split(':')[1].split(', ')
-            except:
+            except Exception:
                 type['yarn'] = 0
         if r.split(':')[0] == 'spark':
             try:
                 type['spark'] = r.split(':')[1].split(', ')
-            except:
+            except Exception:
                 type['spark'] = 0
         if r.split(':')[0] == 'storm':
             try:
                 type['storm'] = r.split(':')[1].split(', ')
-            except:
+            except Exception:
                 type['storm'] = 0
         if r.split(':')[0] == 'system':
             try:
                 type['system'] = r.split(':')[1].split(', ')
-            except:
+            except Exception:
                 type['system'] = 0
         if r.split(':')[0] == 'cassandra':
             try:
                 type['cassandra'] = r.split(':')[1].split(', ')
-            except:
+            except Exception:
                 type['cassandra'] = 0
         if r.split(':')[0] == 'mongodb':
             try:
                 type['mongodb'] = r.split(':')[1].split(', ')
-            except:
+            except Exception:
                 type['mongodb'] = 0
         if r.split(':')[0] == 'userquery':
             type['userquery'] = 0
@@ -157,7 +158,7 @@ def cfilterparse(filter):
             drop_file_loc = filter['Dlist']
         except Exception as inst:
             logger.error('[{}] : [ERROR] Invalid key found in Filter DColumns: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), inst.args))
             sys.exit(0)
         if checkFile(drop_file_loc):
             with open(drop_file_loc) as stream:
@@ -165,13 +166,13 @@ def cfilterparse(filter):
                     filter_list = yaml.safe_load(stream)
                 except yaml.YAMLError as exc:
                     logger.error('[{}] : [ERROR] YAML DColumns file parse error with {} and {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(exc), exc.args))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), type(exc), exc.args))
                     sys.exit(1)
                 # print(filter_list)
                 return filter_list
         else:
             logger.error('[{}] : [ERROR] File not found for DColumns at: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), drop_file_loc))
+                datetime.fromtimestamp(time.time()).strftime(log_format), drop_file_loc))
             sys.exit(1)
     return filter.split(';')
 
@@ -258,9 +259,9 @@ def parseDelay(st):
 
 
 def ut2hum(ut):
-    htime = datetime.fromtimestamp(ut / 1000).strftime('%Y-%m-%d %H:%M:%S')
+    htime = datetime.fromtimestamp(ut / 1000).strftime(log_format)
     if "1970" in htime:
-        htime = datetime.fromtimestamp(ut).strftime('%Y-%m-%d %H:%M:%S')
+        htime = datetime.fromtimestamp(ut).strftime(log_format)
     return htime
 
 
@@ -300,7 +301,7 @@ def check_dask_settings(cnf=None):
     try:
         opts, args = getopt.getopt(cnf, "he:tf:m:vx:d:lq:", ["endpoint=", "file=", "method=", "export=", "detect=", "query="])
     except getopt.GetoptError:
-        logger.warning('[%s] : [WARN] Invalid argument received exiting', datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+        logger.warning('[%s] : [WARN] Invalid argument received exiting', datetime.fromtimestamp(time.time()).strftime(log_format))
         print("ede.py -f <filelocation>, -t -m <method> -v -x <modelname>")
         sys.exit(0)
     for opt, arg in opts:
@@ -325,7 +326,7 @@ def check_valid(*args, **kwargs):
     def inner(func):
         if kwargs['endpont'] is None:
             logger.error('[{}] : [ERROR] Endpoint not defined in config'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             sys.exit(1)
         else:
             return func
