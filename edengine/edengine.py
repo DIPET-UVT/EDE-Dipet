@@ -15,12 +15,14 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-from edeconnector import *
+from edeconnector import Connector, logger, datetime, time
 from edepoint.edepoint import EdePoint
-from util import queryParser, nodesParse, str2Bool, cfilterparse, rfilterparse, pointThraesholds, parseDelay, parseMethodSettings, ut2hum, checkFile
+from util import queryParser, nodesParse, str2Bool, cfilterparse, rfilterparse, pointThraesholds, parseDelay, parseMethodSettings, ut2hum, checkFile, log_format
 from .threadRun import EdeDetectThread, EdePointThread, EdeTrainThread
 from .multiprocRun import EdeDetectProcess, EdePointProcess, EdeTrainProcess
 from time import sleep
+import sys
+import os
 import tempfile
 from edescikit import edescilearncluster as sede
 from edescikit import edescilearnclassification as cede
@@ -37,6 +39,14 @@ class EDEngine:
                  queryDir):
         self.esendpoint = settingsDict['esendpoint']
         self.prendoint = settingsDict['prendpoint']
+        self.sr_pmds_end = settingsDict['pmdsendpoint'] # Serrano
+        self.sr_pmds_check = False # Serrano, used for checking if PMDS is online, once on startup
+        self.sr_cluster_id = settingsDict['pmdsclusterid'] # Serrano
+        self.sr_pmds_namespace = settingsDict['pmdsnamespace'] # Serrano
+        self.sr_pmds_group = settingsDict['pmdsgroups'] # Serrano
+        self.sr_pmds_start = settingsDict['pmdsstart'] # Serrano
+        self.sr_pmds_end = settingsDict['pmdsend'] # Serrano
+        self.sr_pmds_field_measurements = settingsDict['pmdsmetrics'] # Serrano
         self.daskScheduler = settingsDict['Dask']['SchedulerEndpoint']
         self.daskSchedulerPort = settingsDict['Dask']['SchedulerPort']
         self.daskEnforce = settingsDict['Dask']['EnforceCheck']
@@ -45,7 +55,10 @@ class EDEngine:
         self.prKafkaEndpoint = settingsDict['prkafkaendpoint']
         self.prKafkaPort = settingsDict['prkafkaport']
         self.prKafkaTopic = settingsDict['prkafkatopic']
-        self.dmonPort = settingsDict['dmonPort']
+        self.grafana_url = settingsDict['grafanaurl']
+        self.grafana_credentials = settingsDict['grafanatoken']
+        self.grafana_tag = settingsDict['grafanatag']
+        self.EDEPort = settingsDict['EDEPort']
         self.index = settingsDict['index']
         self.tfrom = settingsDict['from']
         self.to = settingsDict['to']
@@ -108,7 +121,7 @@ class EDEngine:
         self.edeConnector = Connector(esEndpoint=self.esendpoint,
                                       prEndpoint=self.prendoint,
                                       MInstancePort=self.MPort,
-                                      dmonPort=self.dmonPort,
+                                      dmonPort=self.EDEPort,
                                       index=self.index,
                                       prKafkaEndpoint=self.prKafkaEndpoint,
                                       prKafkaPort=self.prKafkaPort,
@@ -145,70 +158,79 @@ class EDEngine:
     def initConnector(self):
         if self.esendpoint is not None:
             logger.info('[{}] : [INFO] Establishing connection to DMon ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             resdmonInfo = self.edeConnector.getDmonStatus()
             logger.info('[{}] : [INFO] Connection established, status {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), resdmonInfo))
+                datetime.fromtimestamp(time.time()).strftime(log_format), resdmonInfo))
 
             resInfo = self.edeConnector.info()
             logger.info('[{}] : [INFO]General es dmon info: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), resInfo))
+                datetime.fromtimestamp(time.time()).strftime(log_format), resInfo))
 
             interval = self.edeConnector.getInterval()
             try:
                 if int(self.qinterval[:-1]) < interval['System']:
                     logger.warning('[{}] : [WARN] System Interval smaller than set interval!, DMon interval is {} while EDE is {}!'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.qinterval, interval['System']))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), self.qinterval, interval['System']))
                 else:
                     logger.info('[%s] : [INFO] Query interval check passed!',
-                                   datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                   datetime.fromtimestamp(time.time()).strftime(log_format))
             except Exception:
                 logger.error('[%s] : [ERROR] System Interval not set in dmon!',
-                                   datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                   datetime.fromtimestamp(time.time()).strftime(log_format))
                 sys.exit(1)
 
             resClusterState = self.edeConnector.clusterHealth()
             logger.info('[{}] : [INFO] ES Backend cluster health: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), resClusterState))
+                datetime.fromtimestamp(time.time()).strftime(log_format), resClusterState))
 
-            # print "Checking index %s state ...." %self.index
-            # resGetIndex = self.dmonConnector.getIndex(self.index)
-            # print "Index %s state -> %s" %(self.index, resGetIndex)
 
             logger.info('[{}] : [INFO] Checking dmon registered nodes....'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             self.regnodeList = self.edeConnector.getNodeList()
             logger.info('[{}] : [INFO] Nodes found: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.regnodeList))
+                datetime.fromtimestamp(time.time()).strftime(log_format), self.regnodeList))
             self.desiredNodesList = self.getDesiredNodes()
             if str2Bool(self.resetIndex):
                 logger.warning('[{}] : [WARN] Resseting index: {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.anomalyIndex))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.anomalyIndex))
                 self.edeConnector.deleteIndex(self.anomalyIndex)
                 logger.warning('[%s] : [WARN] Reset index %s complete',
-                               datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.anomalyIndex)
+                               datetime.fromtimestamp(time.time()).strftime(log_format), self.anomalyIndex)
         elif self.prendoint is not None:
             logger.info('[{}] : [INFO] Checking connection to PR Backend ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             self.edeConnector.pr_health_check()
             logger.info('[{}] : [INFO] Fetching PR Backend targets ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             targets = self.edeConnector.pr_targets()
             target_endpoints = []
             for target in targets['data']['activeTargets']:
                 target_endpoints.append(target['labels']['instance'])
             logger.info('[{}] : [INFO] Listing PR Backend target endpoints: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), target_endpoints))
+                datetime.fromtimestamp(time.time()).strftime(log_format), target_endpoints))
             if targets['data']['droppedTargets']:
                 logger.warning('[{}] : [WARNING] Detected PR dropped targets: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                datetime.fromtimestamp(time.time()).strftime(log_format),
                     targets['data']['droppedTargets'])) # TODO parse droped targets instead of dumping json to log
+        elif self.sr_pmds_end is not None:
+            if not self.sr_pmds_check:
+                logger.info('[{}] : [INFO] Checking connection to Serrano PMDS Backend ...'.format(
+                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                deployments = self.edeConnector.sr_pmds_service_query_deployments(cluster_uuid=self.sr_cluster_id,
+                                                                                  namespace=self.sr_pmds_namespace,
+                                                                                  start='-1m',
+                                                                                  format='raw'
+                                                                              )
+                if deployments.status_code != 200:
+                    logger.warning('[{}] : [WARN] Serrano PMDS Backend connection returned non-standard status code: {}'.format(
+                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), deployments.status_code))
         elif self.local is not None:
             logger.info('[{}] : [INFO] Set local data source: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.local))
+                datetime.fromtimestamp(time.time()).strftime(log_format), self.local))
         else:
             logger.error('[{}] : [ERROR] No valid datasource defined'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             sys.exit(1)
 
     def getDesiredNodes(self):
@@ -216,15 +238,15 @@ class EDEngine:
         if not self.nodes:
             desNodes = self.edeConnector.getNodeList()
             logger.info('[%s] : [INFO] Metrics from all nodes will be collected ',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
         else:
             if set(self.nodes).issubset(set(self.regnodeList)):
                 desNodes = self.nodes
                 logger.info('[%s] : [INFO] Metrics from %s nodes will be collected ',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(desNodes))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), str(desNodes))
             else:
                 logger.error('[%s] : [ERROR] Registred nodes %s do not contain desired nodes %s ',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(self.regnodeList),
+                             datetime.fromtimestamp(time.time()).strftime(log_format), str(self.regnodeList),
                              str(desNodes))
                 sys.exit(1)
         return desNodes
@@ -242,17 +264,32 @@ class EDEngine:
             if checkFile(self.local):
                 df_qpr = self.edeConnector.localData(self.local)
                 logger.info('[{}] : [INFO] Loading local training file {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.local))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.local))
             else:
                 logger.error('[{}] : [ERROR] Failed to find  local training file {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.local))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.local))
                 sys.exit(1)
+                
+        elif self.sr_pmds_end is not None:
+            checkpoint = str2Bool(self.checkpoint)
+            query_param = {
+                'cluster_uuid': self.sr_cluster_id,
+                'groups': self.sr_pmds_group,
+                'start': self.sr_pmds_start,
+                'stop': self.sr_pmds_end,
+                'format': 'raw',
+            }
+            r_pmds = self.edeConnector.sr_pmds_query(query_param)
+            logger.info('[{}] : [INFO] Fetching data from Serrano PMDS backend with query: {}'.format(
+                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), query_param))
+
+            df_qpr = self.dformat.sr_pmds_list_to_df(r_pmds, checkpoint=checkpoint, detect=detect)
         else:
             queryd = self.query
             checkpoint = str2Bool(self.checkpoint)
             if queryd is None:
                 logger.info('[%s] : [INFO] Query string not defined using default',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                            datetime.fromtimestamp(time.time()).strftime(log_format))
                 if self.qinterval:
                     qtime = self.qinterval
                 else:
@@ -260,7 +297,7 @@ class EDEngine:
                 queryd = self.qConstructor.pr_query_node(time=qtime)
 
             logger.info('[{}] : [INFO] Fetching data from PR backend with query: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), queryd))
+                datetime.fromtimestamp(time.time()).strftime(log_format), queryd))
             qpr = self.edeConnector.pr_query(queryd)
             df_qpr = self.dformat.prtoDF(data=qpr, checkpoint=checkpoint, verbose=True, detect=detect)
         return df_qpr
@@ -276,11 +313,11 @@ class EDEngine:
         checkpoint = str2Bool(self.checkpoint)
         desNodes = self.desiredNodesList
         logger.info('[%s] : [INFO] Checking node list',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         if 'system' in queryd:
             if queryd['system'] == 0:
                 logger.info('[{}] : [INFO] Starting query for system metrics ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 lload = []
                 lmemory = []
                 linterface = []
@@ -317,7 +354,7 @@ class EDEngine:
 
                 # Merge and rename by node system Files
                 logger.info('[{}] : [INFO] Query complete starting merge ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 if not checkpoint:
                     self.dformat.chainMergeSystem()
                     # Merge system metricsall
@@ -331,14 +368,14 @@ class EDEngine:
                                                           load=df_load, packets=df_packet)
                     self.systemReturn = merged_df
                 logger.info('[{}] : [INFO] System metrics merge complete'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
             else:
                 logger.error('[{}] : [ERROR] Only for all system metrics available'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 sys.exit(1)
         if 'yarn' in queryd:
             logger.info('[{}] : [INFO] Starting qurey for yarn metrics ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             if queryd['yarn'] == 0:
                 # per slave unique process name list
                 nodeProcessReduce = {}
@@ -379,7 +416,7 @@ class EDEngine:
                             lNM.append(self.dformat.dict2csv(gnodeManagerResponse, qnodeManager, nodeManager_file, df=checkpoint))
                     else:
                         logger.info('[%s] : [INFO] Empty response from  %s no Node Manager detected!',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), node)
+                                    datetime.fromtimestamp(time.time()).strftime(log_format), node)
 
                     if list(gjvmNodeManagerResponse['aggregations'].values())[0].values()[0]:
                         if not checkpoint:
@@ -388,7 +425,7 @@ class EDEngine:
                             lNMJvm.append(self.dformat.dict2csv(gjvmNodeManagerResponse, qjvmNodeManager, jvmNodeManager_file, df=checkpoint))
                     else:
                         logger.info('[%s] : [INFO] Empty response from  %s no Node Manager detected!',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), node)
+                                    datetime.fromtimestamp(time.time()).strftime(log_format), node)
 
                     if list(gshuffleResponse['aggregations'].values())[0].values()[0]:
                         if not checkpoint:
@@ -397,7 +434,7 @@ class EDEngine:
                             lShuffle.append(self.dformat.dict2csv(gshuffleResponse, qshuffle, shuffle_file, df=checkpoint))
                     else:
                         logger.info('[%s] : [INFO] Empty response from  %s no shuffle metrics!',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), node)
+                                    datetime.fromtimestamp(time.time()).strftime(log_format), node)
 
                     if list(gdatanode['aggregations'].values())[0].values()[0]:
                         if not checkpoint:
@@ -406,7 +443,7 @@ class EDEngine:
                             lDataNode.append(self.dformat.dict2csv(gdatanode, qdatanode, datanode_file, df=checkpoint))
                     else:
                         logger.info('[%s] : [INFO] Empty response from  %s no datanode metrics!',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), node)
+                                    datetime.fromtimestamp(time.time()).strftime(log_format), node)
 
                     uniqueReduce = set()
                     for i in greduce['hits']['hits']:
@@ -424,7 +461,7 @@ class EDEngine:
                     if processes:
                         for process in processes:
                             logger.info('[%s] : [INFO] Reduce process %s for host  %s found',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), process,
+                                            datetime.fromtimestamp(time.time()).strftime(log_format), process,
                                             host)
                             hreduce, hreduce_file = self.qConstructor.jvmRedProcessbyNameString(host, process)
                             qhreduce = self.qConstructor.jvmNNquery(hreduce, tfrom, to, self.qsize, self.qinterval)
@@ -432,18 +469,17 @@ class EDEngine:
                             if not checkpoint:
                                 self.dformat.dict2csv(ghreduce, qhreduce, hreduce_file)
                             else:
-                                # lreduce.append(self.dformat.dict2csv(ghreduce, qhreduce, hreduce_file, df=checkpoint))
                                 lreduce[process] = self.dformat.dict2csv(ghreduce, qhreduce, hreduce_file, df=checkpoint)
                     else:
                         logger.info('[%s] : [INFO] No reduce process for host  %s found',
-                                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), host)
+                                        datetime.fromtimestamp(time.time()).strftime(log_format), host)
                         pass
 
                 for host, processes in nodeProcessMap.items():
                     if processes:
                         for process in processes:
                             logger.info('[%s] : [INFO] Map process %s for host  %s found',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), process,
+                                            datetime.fromtimestamp(time.time()).strftime(log_format), process,
                                             host)
                             hmap, hmap_file = self.qConstructor.jvmMapProcessbyNameString(host, process)
                             qhmap = self.qConstructor.jvmNNquery(hmap, tfrom, to, self.qsize, self.qinterval)
@@ -451,11 +487,10 @@ class EDEngine:
                             if not checkpoint:
                                 self.dformat.dict2csv(ghmap, qhmap, hmap_file)
                             else:
-                                # lmap.append(self.dformat.dict2csv(ghmap, qhmap, hmap_file, df=checkpoint))
                                 lmap[process] = self.dformat.dict2csv(ghmap, qhmap, hmap_file, df=checkpoint)
                     else:
                         logger.info('[%s] : [INFO] No map process for host  %s found',
-                                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), host)
+                                        datetime.fromtimestamp(time.time()).strftime(log_format), host)
                         pass
 
                         # Get non host based metrics queries and file strings
@@ -501,7 +536,7 @@ class EDEngine:
                     self.dformat.dict2csv(gfsop, qfsop, fsop_file)
 
                     logger.info('[{}] : [INFO] Query for yarn metrics complete starting merge ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     merged_DFS = self.dformat.chainMergeDFS()
                     self.dformat.df2csv(merged_DFS, os.path.join(self.dataDir, 'DFS_Merged.csv'))
 
@@ -519,7 +554,7 @@ class EDEngine:
                     final_merge = self.dformat.mergeFinal()
                     self.dformat.df2csv(final_merge, os.path.join(self.dataDir, 'Final_Merge.csv'))
                     logger.info('[%s] : [INFO] Yarn metrics merge complete',
-                                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                datetime.fromtimestamp(time.time()).strftime(log_format))
                     self.yarnReturn = 0
                 else:
                    df_dfs = self.dformat.dict2csv(gdfs, qdfs, dfs_file, df=checkpoint)
@@ -543,7 +578,7 @@ class EDEngine:
 
                    self.yarnReturn = final_merge
                 logger.info('[%s] : [INFO] Yarn metrics merge complete',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                            datetime.fromtimestamp(time.time()).strftime(log_format))
                 self.yarnReturn = final_merge
                 self.mapmetrics = lmap
                 self.reducemetrics = lreduce
@@ -566,7 +601,7 @@ class EDEngine:
                        mMap, mReduce, mMRApp = self.getMapnReduce(desNodes, detect=detect)
                     if el not in ['cluster', 'nn', 'nm', 'dfs', 'dn', 'mr']:
                         logger.error('[%s] : [ERROR] Unknown metrics context %s',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), el)
+                                            datetime.fromtimestamp(time.time()).strftime(log_format), el)
                         sys.exit(1)
             if not checkpoint:
                 final_merge = self.dformat.mergeFinal()
@@ -582,15 +617,15 @@ class EDEngine:
                 self.mrapp = mMRApp
                 self.dformat.df2csv(final_merge, os.path.join(self.dataDir, 'cTest.csv'))
             logger.info('[{}] : [INFO] Finished query and merge for yarn metrics'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
 
         elif 'spark' in queryd:
             logger.info('[{}] : [INFO] Starting query for Spark metrics'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             self.sparkReturn = self.getSpark(detect=detect)
         elif 'storm' in queryd:
             logger.info('[{}] : [INFO] Starting query for Storm metrics'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             stormTopology = self.edeConnector.getStormTopology()
             try:
                 bolts = stormTopology['bolts']
@@ -598,7 +633,7 @@ class EDEngine:
                 topology = stormTopology['Topology']
             except Exception as inst:
                 logger.error('[%s] : [ERROR] No Storm topology found with %s',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(stormTopology))
+                                            datetime.fromtimestamp(time.time()).strftime(log_format), str(stormTopology))
                 sys.exit(1)
             storm, storm_file = self.qConstructor.stormString()
             qstorm = self.qConstructor.stormQuery(storm, tfrom, to, self.qsize, self.qinterval, bolts=bolts, spouts=spouts)
@@ -632,37 +667,37 @@ class EDEngine:
         checkpoint = str2Bool(self.checkpoint)
         if self.cfilter is None:
             logger.info('[%s] : [INFO] Column filter not set skipping',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                            datetime.fromtimestamp(time.time()).strftime(log_format))
         else:
             if not cfilterparse(self.cfilter):
                 logger.warning('[%s] : [WARN] Column filter is empty skipping',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                            datetime.fromtimestamp(time.time()).strftime(log_format))
             else:
                 logger.info('[%s] : [INFO] Column filter is set to %s filtering ...',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.cfilter)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), self.cfilter)
                 df = self.dformat.filterColumns(df, cfilterparse(self.cfilter))
         if self.rfilter is None:
             logger.info('[%s] : [INFO] Row filter not set skipping',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
         else:
             ld, gd = rfilterparse(self.rfilter)
             if ld == 0 and gd == 0:
                 logger.info('[%s] : [INFO] Both ld and gd are set to zero skipping row filter',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
             else:
                 logger.info('[%s] : [INFO] Row filter is set to gd->%s and ld->%s filtering',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), ld, gd)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), ld, gd)
                 df = self.dformat.filterRows(df, int(ld), int(gd))
         if self.dfilter is None:
             logger.info('[%s] : [INFO] Drop columns not set skipping',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
         else:
             if not cfilterparse(self.dfilter):
                 logger.warning('[%s] : [WARN] Drop column filter is empty skipping',
-                               datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                               datetime.fromtimestamp(time.time()).strftime(log_format))
             else:
                 logger.info('[{}] : [INFO] Drop columns set to {}, fitlering ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.dfilter))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.dfilter))
                 if m:
                     self.dformat.dropColumns(df, cfilterparse(self.dfilter), cp=False)
                 else:
@@ -680,78 +715,73 @@ class EDEngine:
         if self.filterwild:
             if "Regex" not in self.filterwild.keys():
                 logger.error('[%s] : [ERROR] Missing parameters for filtering via wildcard exiting ...',
-                               datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                               datetime.fromtimestamp(time.time()).strftime(log_format))
                 sys.exit(1)
             if "Keep" in self.filterwild.keys():
                 df = self.dformat.filterWildcard(df, wild_card=self.filterwild['Regex'], keep=self.filterwild['Keep'])
             else:
                 df = self.dformat.filterWildcard(df, wild_card=self.filterwild['Regex'])
 
-        # if index:
-        #     df.set_index(index, inplace=True)
 
         if self.categorical is None:
             logger.info('[%s] : [INFO] Skipping categorical feature conversion',
-                               datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                               datetime.fromtimestamp(time.time()).strftime(log_format))
         else:
             logger.info('[%s] : [INFO] Starting categorical feature conversion',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
             col = self.getCategoricalFeatures()
             df, v, o = self.dformat.ohEncoding(df, cols=col)
         if checkpoint:
             logger.info('[{}] : [INFO] Checkpointing  filtered data ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             if detect:
                 pr_f = "pr_data_detect_filtered.csv"
             else:
                 pr_f = 'pr_data_filtered.csv'
             df.to_csv(os.path.join(self.dataDir, pr_f))
         logger.info('[{}] : [INFO] Filtered data shape {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), df.shape))
+                datetime.fromtimestamp(time.time()).strftime(log_format), df.shape))
         if df.shape[0] == 0:
             logger.error('[{}] : [ERROR] Empty dataframe rezulted after filtering! Exiting!'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
             sys.exit(1)
         return df
 
     def trainDaskMethod(self):
         if str2Bool(self.train):
             logger.info('[{}] : [INFO] Training started. Getting data ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             checkpoint = str2Bool(self.checkpoint)
             pr_data = self.getDataPR()
             if self.traintype == 'classification' or self.traintype == 'hpo' or self.traintype =='tpot':
                 pr_data, y = self.dformat.getGT(pr_data, gt=self.target)
             udata = self.filterData(pr_data)
-            # print(list(udata.index))
             if self.augmentations is not None:
                 try:
                     scaler_type = self.augmentations['Scaler']
 
-                except:
+                except Exception:
                     scaler_type = False
 
                 try:
                     sudata = self.dformat.scale(data=udata, scaler_type=scaler_type)
                 except Exception as inst:
                     logger.warning('[{}] : [WARN] Failed to initialize scaler with {} and {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
                     sudata = udata
-                # print(list(sudata.index))
                 try:
                     operations = self.augmentations['Operations']
                     try:
                         remove_filtered = self.augmentations['Operations']['RemoveFiltered']
-                    except:
+                    except Exception:
                         remove_filtered = True
-                except:
+                except Exception:
                     operations = False
                     remove_filtered = False
 
                 asudata = self.dformat.computeOnColumns(sudata, operations=operations, remove_filtered=remove_filtered)
                 if checkpoint:
                     asudata.to_csv(os.path.join(self.dataDir, 'pr_data_augmented.csv'))
-                # print(list(asudata.index))
             else:
                 asudata = udata
             # User defined analysis
@@ -759,7 +789,7 @@ class EDEngine:
                 self.analisysDask(pr_data)
             if self.traintype == 'clustering':
                 logger.info('[{}] : [INFO] Training clusterer ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 if self.trainmethod == 'isoforest':  # TODO: merge pyod models from private dev repo
                     disofrst = sede.SciCluster(self.modelsDir)
                     isofrstmodel = disofrst.dask_isolationForest(settings=self.methodSettings, mname=self.export, data=asudata)
@@ -768,21 +798,20 @@ class EDEngine:
                     dbscanmodel = dsdbscan.dask_sdbscanTrain(settings=self.methodSettings, mname=self.export, data=asudata)
                 else:
                     if not isinstance(self.trainmethod, str):
-                        # print(self.trainmethod)
                         logger.info('[{}] : [INFO] Detected user defined method, initializing ...'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                            datetime.fromtimestamp(time.time()).strftime(log_format)))
                         umeth = sede.SciCluster(self.modelsDir)
                         umod = umeth.dask_clusterMethod(cluster_method=self.trainmethod, mname=self.export, data=asudata)
                     else:
                         logger.error('[{}] : [ERROR] Unknown Clustering method {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.type))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.type))
                         sys.exit(1)
                 logger.info('[{}] : [INFO] Clustering Complete.'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                            datetime.fromtimestamp(time.time()).strftime(log_format)))
 
             elif self.traintype == 'classification':
                 logger.info('[{}] : [INFO] Training classifier ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 classede = cede.SciClassification(self.modelsDir, self.dataDir, self.checkpoint, self.export,
                                                   training=self.trainingSet, validation=self.validationSet,
                                                   validratio=self.validratio, compare=self.compare, cv=self.cv,
@@ -795,10 +824,10 @@ class EDEngine:
                                                classification_method=self.trainmethod)
 
                 logger.info('[{}] : [INFO] Classification Complete.'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
             elif self.traintype == 'hpo':
                 logger.info('[{}] : [INFO] Stating HPO.'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 classede = cede.SciClassification(self.modelsDir, self.dataDir, self.checkpoint, self.export,
                                                   training=self.trainingSet, validation=self.validationSet,
                                                   validratio=self.validratio, compare=self.compare, cv=self.cv,
@@ -812,7 +841,7 @@ class EDEngine:
                                         hpoparam=self.hpoparam,
                                         classification_method=self.trainmethod)
                 logger.info('[{}] : [INFO] HPO Completed.'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
             elif self.traintype == 'tpot':
                 classede = cede.SciClassification(self.modelsDir, self.dataDir, self.checkpoint, self.export,
                                                   training=self.trainingSet, validation=self.validationSet,
@@ -824,13 +853,13 @@ class EDEngine:
                                          y=y)
             else:
                 logger.error('[{}] : [ERROR] Unknown training type {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.type))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.type))
                 sys.exit(1)
             logger.info('[{}] : [INFO] Training complete'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
         else:
             logger.warning('[%s] : [WARN] Training is set to false, skipping...',
-                           datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                           datetime.fromtimestamp(time.time()).strftime(log_format))
             return 0
 
     def analisysDask(self, data):
@@ -839,18 +868,18 @@ class EDEngine:
         else:
             if len(self.analysis['Methods']) == 0:
                 logger.warn('[{}] : [WARN] No analysis methods have been defined'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 pass
             else:
                 logger.info('[{}] : [INFO] Starting user defined analysis'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 for manalysis in self.analysis['Methods']:
                     self.__analysisMethod(manalysis['Method'], data)
                 if str2Bool(self.analysis['Solo']):
                     logger.warning('[{}] : [WARN] Only analysis set to run, skipping other tasks!'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     logger.info('[{}] : [INFO] Exiting EDE framework'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     sys.exit(0)
         return 0
 
@@ -858,20 +887,20 @@ class EDEngine:
                           data):
         try:
             logger.info('[{}] : [INFO] Loading user defined analysis: {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), method.__name__))
+                datetime.fromtimestamp(time.time()).strftime(log_format), method.__name__))
             data_op = method(data)
         except Exception as inst:
             logger.error('[{}] : [ERROR] Failed to load user analysis {} with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), method.__name__, type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), method.__name__, type(inst), inst.args))
             return data
         logger.info('[{}] : [INFO] Finished user analysis: {}'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), method.__name__))
+            datetime.fromtimestamp(time.time()).strftime(log_format), method.__name__))
         return data_op
 
-    def trainMethod(self):
+    def trainMethodSelector(self):
         if str2Bool(self.train):
             logger.info('[{}] : [INFO] Getting data ...'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             checkpoint = str2Bool(self.checkpoint)
             queryd = queryParser(self.query)
             systemReturn, yarnReturn, reducemetrics, mapmetrics, mrapp, sparkReturn, stormReturn, cassandraReturn, mongoReturn, userqueryReturn, cepQueryReturn = self.getData()
@@ -913,7 +942,7 @@ class EDEngine:
             if self.type == 'clustering':
                 if self.method in self.allowedMethodsClustering:
                     logger.info('[{}] : [INFO] Training with selected method {} of type {}'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method, self.type))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), self.method, self.type))
                     if checkpoint:
                         dfcomp = ['sdbscan', 'isoforest']  # TODO expand to all dataframe supporting methods
                         if self.method not in dfcomp:
@@ -925,7 +954,7 @@ class EDEngine:
                             data = os.path.join(self.dataDir, 'Final_Merge.csv')
                             if not os.path.isfile(data):
                                 logger.error('[%s] : [ERROR] File %s does not exist, cannot load data! Exiting ...',
-                                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                                             datetime.fromtimestamp(time.time()).strftime(log_format),
                                              str(data))
                                 sys.exit(1)
                         elif 'storm' in queryd:
@@ -941,41 +970,32 @@ class EDEngine:
                         # data = dataf
                     if self.method == 'skm':
                         logger.info('[{}] : [INFO] Method {} settings detected: {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method, self.methodSettings))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), self.method, self.methodSettings))
                         opt = parseMethodSettings(self.methodSettings)
                         if not opt:
                             opt = ['-S', '10', '-N', '10']
                         try:
                             raise Exception("Weka is no longer supported!!")
-                            sys.exit(2)
-                            # self.dweka.simpleKMeansTrain(dataf=data, options=opt, mname=self.export)
                         except Exception as inst:
                             logger.error('[%s] : [ERROR] Unable to run training for method %s exited with %s and %s',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method, type(inst), inst.args)
+                                            datetime.fromtimestamp(time.time()).strftime(log_format), self.method, type(inst), inst.args)
                             sys.exit(1)
-                        # logger.info('[{}] : [INFO] Saving model with name {}'.format(
-                        #     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.modelName(self.method, self.export)))
                     elif self.method == 'em':
                         logger.info('[{}] : [INFO] Method {} settings detected: {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method, str(self.methodSettings)))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), self.method, str(self.methodSettings)))
                         opt = parseMethodSettings(self.methodSettings)
                         if not opt:
                             opt = ["-I", "1000", "-N", "6",  "-M", "1.0E-6", "-num-slots", "1", "-S", "100"]
                         try:
                             raise Exception("Weka is no longer supported!!")
-                            sys.exit(2)
-                            # self.dweka.emTrain(dataf=data, options=opt, mname=self.export)
                         except Exception as inst:
                             logger.error('[%s] : [ERROR] Unable to run training for method %s exited with %s and %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method,
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), self.method,
                                          type(inst), inst.args)
                             sys.exit(1)
-                        # logger.info('[{}] : [INFO] Saving model with name {}'.format(
-                        #     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
-                        #     self.modelName(self.method, self.export)))
                     elif self.method == 'dbscan':
                         logger.info('[{}] : [INFO] Method {} settings detected: {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method,
+                            datetime.fromtimestamp(time.time()).strftime(log_format), self.method,
                             self.methodSettings))
                         opt = parseMethodSettings(self.methodSettings)
                         if not opt:
@@ -983,22 +1003,18 @@ class EDEngine:
                         try:
                             # self.dweka.dbscanTrain(dataf=data, options=opt, mname=self.export)
                             raise Exception("Weka is no longer supported!!")
-                            sys.exit(2)
                         except Exception as inst:
                             logger.error('[%s] : [ERROR] Unable to run training for method %s exited with %s and %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method,
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), self.method,
                                          type(inst), inst.args)
                             sys.exit(1)
-                        # logger.info('[{}] : [INFO] Saving model with name {}'.format(
-                        #     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
-                        #     self.modelName(self.method, self.export)))
                     elif self.method == 'sdbscan':
                         opt = self.methodSettings
                         if not opt or 'leaf_size' not in opt:
                             opt = {'eps': 0.9, 'min_samples': 10, 'metric': 'euclidean',
                                    'algorithm': 'auto', 'leaf_size': 30, 'p': 0.2, 'n_jobs': 1}
                         logger.info('[%s] : [INFO] Using settings for sdbscan -> %s ',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(opt))
+                                    datetime.fromtimestamp(time.time()).strftime(log_format), str(opt))
                         db = sede.SciCluster(self.modelsDir)
                         dbmodel = db.sdbscanTrain(settings=opt, mname=self.export, data=udata)
                     elif self.method == 'isoforest':
@@ -1007,7 +1023,7 @@ class EDEngine:
                             opt = {'n_estimators': 100, 'max_samples': 100, 'contamination': 0.01, 'bootstrap': False,
                                    'max_features': 1.0, 'n_jobs': -1, 'random_state': None, 'verbose': 0}
                         logger.info('[%s] : [INFO] Using settings for isoForest -> %s ',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(opt))
+                                    datetime.fromtimestamp(time.time()).strftime(log_format), str(opt))
                         isofrst = sede.SciCluster(self.modelsDir)
                         isofrstmodel = isofrst.isolationForest(settings=opt, mname=self.export, data=udata)
                     # Once training finished set training to false
@@ -1015,39 +1031,38 @@ class EDEngine:
                     return self.modelName(self.method, self.export)
                 else:
                     logger.error('[%s] : [ERROR] Unknown method %s of type %s ',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method, self.type)
+                                            datetime.fromtimestamp(time.time()).strftime(log_format), self.method, self.type)
                     sys.exit(1)
             elif self.type == 'classification':
-                # validratio=settings['validratio'], compare=True)
                 classdmon = cede.SciClassification(self.modelsDir, self.dataDir, self.checkpoint, self.export,
                                                    training=self.trainingSet, validation=self.validationSet,
                                                    validratio=self.validratio, compare=self.compare)
                 if self.method in self.allowefMethodsClassification:
                     if self.trainingSet is None:
                         logger.info('[%s] : [INFO] Started Training Set generation ... ',
-                                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                     datetime.fromtimestamp(time.time()).strftime(log_format))
                         udata = classdmon.trainingDataGen(self.methodSettings, udata, onlyAno=self.anoOnly)
 
                     if self.method == 'randomforest':
                         logger.info('[%s] : [INFO] Initializaing RandomForest model creation ....',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                    datetime.fromtimestamp(time.time()).strftime(log_format))
                         rfmodel = classdmon.randomForest(settings=self.methodSettings, data=udata, dropna=True)
                     elif self.method == 'decisiontree':
                         logger.info('[%s] : [INFO] Initializaing Decision Tree model creation ....',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                    datetime.fromtimestamp(time.time()).strftime(log_format))
                         dtmodel = classdmon.decisionTree(settings=self.methodSettings, data=udata, dropna=True)
                     elif self.method == 'sneural':
                         logger.info('[%s] : [INFO] Initializaing Neural Network model creation ....',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                    datetime.fromtimestamp(time.time()).strftime(log_format))
                         nnmodel = classdmon.neuralNet(settings=self.methodSettings, data=udata, dropna=True)
                     elif self.method == 'adaboost':
                         logger.info('[%s] : [INFO] Initializaing Ada Boost model creation ....',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                    datetime.fromtimestamp(time.time()).strftime(log_format))
                         admodel = classdmon.adaBoost(settings=self.methodSettings, data=udata, dropna=True)
                     elif self.method == 'naivebayes':
                         print('NaiveBayes not available in this version!')
                         logger.warning('[%s] : [WARN] NaiveBayes not available in this version!',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                    datetime.fromtimestamp(time.time()).strftime(log_format))
                         sys.exit(0)
                     elif self.method == 'rbad':
                         rbad_home = os.environ['RBAD_HOME'] = os.getenv('RBAD_HOME', os.getcwd())
@@ -1055,7 +1070,7 @@ class EDEngine:
 
                         if os.path.isfile(rbad_exec):
                             logger.error('[%s] : [ERROR] RBAD Executable nor found at %s',
-                                           datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), rbad_exec)
+                                           datetime.fromtimestamp(time.time()).strftime(log_format), rbad_exec)
                             sys.exit(1)
                         rbadPID = 0
                         try:
@@ -1063,25 +1078,25 @@ class EDEngine:
                                                      close_fds=True).pid
                         except Exception as inst:
                             logger.error("[%s] : [ERROR] Cannot start RBAD with %s and %s",
-                                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                                             datetime.fromtimestamp(time.time()).strftime(log_format),
                                              type(inst), inst.args)
                             sys.exit(1)
                         logger.info('[%s] : [WARN] RBAD finished!',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                    datetime.fromtimestamp(time.time()).strftime(log_format))
                         sys.exit(0)
                     self.train = False
                 else:
                     logger.error('[%s] : [ERROR] Unknown method %s of type %s ',
-                                 datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method,
+                                 datetime.fromtimestamp(time.time()).strftime(log_format), self.method,
                                  self.type)
                     sys.exit(1)
             else:
                 logger.error('[%s] : [ERROR] Unknown type %s ',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.type)
+                                            datetime.fromtimestamp(time.time()).strftime(log_format), self.type)
                 sys.exit(1)
         else:
             logger.warning('[%s] : [WARN] Training is set to false, skipping...',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                            datetime.fromtimestamp(time.time()).strftime(log_format))
             return 0
 
     def detectPointAnomalies(self):
@@ -1090,13 +1105,13 @@ class EDEngine:
             loadth = {'shortterm': {'threashold': '4.5', 'bound': 'gd'},
                       'longterm': {'threashold': '3.0', 'bound': 'gd'}, 'midterm': {'threashold': '3.5', 'bound': 'gd'}}
             logger.warning('[%s] : [WARN] Using default values for point anomaly load',
-                           datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                           datetime.fromtimestamp(time.time()).strftime(log_format))
         networkth = pointThraesholds(self.snetwork)
         if not loadth:
             networkth = {'rx': {'threashold': '1000000000', 'bound': 'gd'},
                          'tx': {'threashold': '1000000000', 'bound': 'gd'}}
             logger.warning('[%s] : [WARN] Using default values for point anomaly network',
-                           datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                           datetime.fromtimestamp(time.time()).strftime(log_format))
         memoryth = pointThraesholds(self.smemory)
         if not memoryth:
             memoryth = {'cached': {'threashold': '231313', 'bound': 'gd'},
@@ -1104,7 +1119,7 @@ class EDEngine:
                         'used': {'threashold': '1000000000', 'bound': 'gd'},
                         'free': {'threashold': '100000000', 'bound': 'ld'}}
             logger.warning('[%s] : [WARN] Using default values for point anomaly memory',
-                           datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                           datetime.fromtimestamp(time.time()).strftime(log_format))
         all = [loadth, networkth, memoryth]
         while True:
             lload = []
@@ -1154,7 +1169,7 @@ class EDEngine:
                                 # self.reportAnomaly(responseD)
                             else:
                                 logger.info('[%s] : [INFO] No point anomalies detected for type %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type)
                         else:
                             anomalies = self.edepoint.detpoint(dict_system, type=type, threashold=val['threashold'], lt=True)
                             if anomalies:
@@ -1162,12 +1177,12 @@ class EDEngine:
                                 # self.reportAnomaly(responseD)
                             else:
                                 logger.info('[%s] : [INFO] No point anomalies detected for type %s ',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type)
+                                            datetime.fromtimestamp(time.time()).strftime(log_format), type)
                     if responseD:
                         self.reportAnomaly(responseD)
                     else:
                         logger.info('[%s] : [INFO] No point anomalies detected',
-                                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                    datetime.fromtimestamp(time.time()).strftime(log_format))
                     sleep(parseDelay(self.delay))
 
     def detectDaskAnomalies(self):
@@ -1175,21 +1190,21 @@ class EDEngine:
             checkpoint = str2Bool(self.checkpoint)
             if self.detecttype == 'clustering':
                 logger.info('[{}] : [INFO] Detection with clusterer started. Getting data ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 while True:
                     pr_data = self.getDataPR(detect=True)
                     udata = self.filterData(pr_data, detect=True)
                     if self.detectionscaler is not None:
                         logger.info('[{}] : [INFO] Detection scaler set to {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.detectionscaler))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), self.detectionscaler))
                         scaler_file = os.path.join(self.dataDir, "{}.scaler".format(self.detectionscaler))
                         try:
                             logger.info('[{}] : [INFO] Detection started. Getting data ...'.format(
-                                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                                datetime.fromtimestamp(time.time()).strftime(log_format)))
                             sudata = self.dformat.load_scaler(udata, scaler_file)
                         except Exception as inst:
                             logger.warning('[{}] : [WARN] Failed to initialize detection scaler with {} and {}'.format(
-                                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst),
+                                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst),
                                 inst.args))
                             sudata = udata
                     else:
@@ -1199,9 +1214,9 @@ class EDEngine:
                             operations = self.augmentations['Operations']
                             try:
                                 remove_filtered = self.augmentations['Operations']['RemoveFiltered']
-                            except:
+                            except Exception:
                                 remove_filtered = True
-                        except:
+                        except Exception:
                             operations = False
                             remove_filtered = False
                         asudata = self.dformat.computeOnColumns(sudata, operations=operations, remove_filtered=remove_filtered)
@@ -1213,32 +1228,32 @@ class EDEngine:
                     anomalies = smodel.dask_detect(self.detectmethod, self.load, data=asudata)
                     if not anomalies['anomalies']:
                         logger.info('[{}] : [INFO] No anomalies detected with {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.detectmethod))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), self.detectmethod))
                         sleep(parseDelay(self.delay))
                     else:
                         anomalies['method'] = self.detectmethod
                         anomalies['interval'] = self.qinterval
                         logger.info('[{}] : [DEBUG] Reporting detected anomalies: {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), anomalies))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), anomalies))
                         self.reportAnomaly(anomalies, dask=True)
                         sleep(parseDelay(self.delay))
             elif self.detecttype == 'classification':
                 logger.info('[{}] : [INFO] Detection with classifier started. Getting data ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 while True:
                     pr_data = self.getDataPR(detect=True)
                     udata = self.filterData(pr_data, detect=True)
                     if self.detectionscaler is not None:
                         logger.info('[{}] : [INFO] Detection scaler set to {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.detectionscaler))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), self.detectionscaler))
                         scaler_file = os.path.join(self.dataDir, "{}.scaler".format(self.detectionscaler))
                         try:
                             logger.info('[{}] : [INFO] Detection started. Getting data ...'.format(
-                                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                                datetime.fromtimestamp(time.time()).strftime(log_format)))
                             sudata = self.dformat.load_scaler(udata, scaler_file)
                         except Exception as inst:
                             logger.warning('[{}] : [WARN] Failed to initialize detection scaler with {} and {}'.format(
-                                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst),
+                                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst),
                                 inst.args))
                             sudata = udata
                     else:
@@ -1248,9 +1263,9 @@ class EDEngine:
                             operations = self.augmentations['Operations']
                             try:
                                 remove_filtered = self.augmentations['Operations']['RemoveFiltered']
-                            except:
+                            except Exception:
                                 remove_filtered = True
-                        except:
+                        except Exception:
                             operations = False
                             remove_filtered = False
                         asudata = self.dformat.computeOnColumns(sudata, operations=operations,
@@ -1268,43 +1283,35 @@ class EDEngine:
                     anomalies = classede.dask_detect(self.detectmethod, self.load, data=asudata)
                     if not anomalies['anomalies']:
                         logger.info('[{}] : [INFO] No anomalies detected with {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.detectmethod))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), self.detectmethod))
                         sleep(parseDelay(self.delay))
                     else:
                         anomalies['method'] = self.detectmethod
                         anomalies['interval'] = self.qinterval
                         logger.info('[{}] : [DEBUG] Reporting detected anomalies: {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), anomalies))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), anomalies))
                         self.reportAnomaly(anomalies, dask=True)
                         # print(anomalies)
                         sleep(parseDelay(self.delay))
             else:
                 logger.error('[{}] : [ERROR] Unknown detection type {}. Exiting..'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.detecttype))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.detecttype))
                 sys.exit(1)
         else:
             logger.warning('[%s] : [WARN] Detect is set to false, skipping...',
-                       datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                       datetime.fromtimestamp(time.time()).strftime(log_format))
 
     def detectAnomalies(self):
         if str2Bool(self.detect):
             checkpoint = str2Bool(self.checkpoint)
             queryd = queryParser(self.query)
             logger.info('[%s] : [INFO] Detection query set as %s ',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(queryd))
+                         datetime.fromtimestamp(time.time()).strftime(log_format), str(queryd))
             if self.type == 'clustering':
                 while True:
                     logger.info('[{}] : [INFO] Collecting data ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     systemReturn, yarnReturn, reducemetrics, mapmetrics, mrapp, sparkReturn, stormReturn, cassandraReturn, mongoReturn, userQueryReturn, cepQueryReturn = self.getData(detect=True)
-                    # if list(set(self.dformat.fmHead) - set(list(yarnReturn.columns.values))):
-                    #     print "Mismatch between desired and loaded data"
-                    #     sys.exit()
-                    # if self.dataNodeTraining != self.dataNodeDetecting:
-                    #     print "Detected datanode discrepancies; training %s, detecting %s" %(self.dataNodeTraining, self.dataNodeDetecting)
-                    #     logger.error('[%s] : [ERROR]Detected datanode discrepancies; training %s, detecting %s',
-                    #          datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.dataNodeTraining, self.dataNodeDetecting)
-                    #     sys.exit(1)
 
                     if 'yarn' in queryd:
                         yarnReturn = self.filterData(yarnReturn) #todo
@@ -1355,26 +1362,20 @@ class EDEngine:
                         data = self.filterData(data)
                     if self.method in self.allowedMethodsClustering:
                         logger.info('[{}] : [INFO] Deteting with selected method {} of type {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                            datetime.fromtimestamp(time.time()).strftime(log_format),
                             self.method, self.type))
                         if os.path.isfile(os.path.join(self.modelsDir, self.modelName(self.method, self.load))):
                             logger.info('[{}] : [INFO] model found at {}'.format(
-                                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),str(
+                                datetime.fromtimestamp(time.time()).strftime(log_format),str(
                                 os.path.join(self.modelsDir, self.modelName(self.method, self.load)))))
                             wekaList = ['skm', 'em', 'dbscan']
                             if self.method in wekaList:
-                                # anomalies = self.dweka.runclustermodel(self.method, self.load, data)
                                 raise Exception("Weka is no longer supported!!")
-                                sys.exit(2)
-                                # print ut2hum(e)
-                                a = {"method": self.method, "qinterval": self.qinterval, "anomalies": anomalies}
-                                self.reportAnomaly(a)
-                                sleep(parseDelay(self.delay))
                             else:
                                 smodel = sede.SciCluster(modelDir=self.modelsDir)
                                 anomalies = smodel.detect(self.method, self.load, data)
                                 if not anomalies['anomalies']:
-                                    logger.info('[%s] : [INFO] No anomalies detected with IsolationForest', datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                    logger.info('[%s] : [INFO] No anomalies detected with IsolationForest', datetime.fromtimestamp(time.time()).strftime(log_format))
                                     sleep(parseDelay(self.delay))
                                 else:
                                     anomalies['method'] = self.method
@@ -1383,18 +1384,18 @@ class EDEngine:
                                     sleep(parseDelay(self.delay))
                         else:
                             logger.error('[%s] : [ERROR] Model %s not found at %s ',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.load,
+                             datetime.fromtimestamp(time.time()).strftime(log_format), self.load,
                                      str(os.path.join(self.modelsDir, self.modelName(self.method, self.load))))
                             sys.exit(1)
                     else:
                         logger.error('[%s] : [ERROR] Unknown method %s of type %s ',
-                                 datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method,
+                                 datetime.fromtimestamp(time.time()).strftime(log_format), self.method,
                                  self.type)
                         sys.exit(1)
             elif self.type == 'classification':
                 while True:
                     logger.info('[{}] : [INFO] Collecting data ...'.format(
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                        datetime.fromtimestamp(time.time()).strftime(log_format)))
                     systemReturn, yarnReturn, reducemetrics, mapmetrics, mrapp, sparkReturn, stormReturn, cassandraReturn, mongoReturn, userQueryReturn, cepQueryReturn = self.getData(
                         detect=True)
                     if 'yarn' in queryd:
@@ -1441,10 +1442,10 @@ class EDEngine:
                         data = self.filterData(data)
                     if self.method in self.allowefMethodsClassification:
                         logger.info('[{}] : [INFO] Deteting with selected method {} of type {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method, self.type))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), self.method, self.type))
                         if os.path.isfile(os.path.join(self.modelsDir, self.modelName(self.method, self.load))):
                             logger.info('[{}] : [INFO] Model found at {}'.format(
-                                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(
+                                datetime.fromtimestamp(time.time()).strftime(log_format), str(
                                 os.path.join(self.modelsDir, self.modelName(self.method, self.load)))))
                             cmodel = cede.SciClassification(self.modelsDir, self.dataDir, self.checkpoint, self.export,
                                                             training=self.trainingSet, validation=self.validationSet,
@@ -1452,7 +1453,7 @@ class EDEngine:
                             anomalies = cmodel.detect(self.method, self.load, data)
                             if not anomalies['anomalies']:
                                 logger.info('[%s] : [INFO] No anomalies detected with %s',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(self.method))
+                                            datetime.fromtimestamp(time.time()).strftime(log_format), str(self.method))
                                 sleep(parseDelay(self.delay))
                             else:
                                 anomalies['method'] = self.method
@@ -1461,24 +1462,24 @@ class EDEngine:
                                 sleep(parseDelay(self.delay))
                         else:
                             logger.error('[%s] : [ERROR] Model %s not found at %s ',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.load,
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), self.load,
                                          str(os.path.join(self.modelsDir, self.modelName(self.method, self.load))))
                             sys.exit(1)
 
                     else:
                         logger.error('[%s] : [ERROR] Unknown method %s of type %s ',
-                                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.method,
+                                     datetime.fromtimestamp(time.time()).strftime(log_format), self.method,
                                      self.type)
                         sys.exit(1)
 
                 # sys.exit(0)
             else:
                 logger.error('[%s] : [ERROR] Unknown type %s ',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.type)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), self.type)
                 sys.exit(1)
         else:
             logger.warning('[%s] : [WARN] Detect is set to false, skipping...',
-                       datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                       datetime.fromtimestamp(time.time()).strftime(log_format))
 
     def run(self, engine):
         try:
@@ -1495,7 +1496,7 @@ class EDEngine:
             threadDetect.join()
         except Exception as inst:
             logger.error('[%s] : [ERROR] Exception %s with %s during thread execution, halting',
-                           datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                           datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             sys.exit(1)
         return 0
 
@@ -1528,7 +1529,7 @@ class EDEngine:
 
         except Exception as inst:
             logger.error('[%s] : [ERROR] Exception %s with %s during process execution, halting',
-                           datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                           datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             sys.exit(1)
         return 0
 
@@ -1541,7 +1542,7 @@ class EDEngine:
             time.sleep(10)
         except Exception as inst:
             logger.error('[{}] : [ERROR] Exception while running Dask backend with {} and {}, halting'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
             sys.exit(1)
 
     def modelName(self, methodname, modelName):
@@ -1569,6 +1570,40 @@ class EDEngine:
             self.edeConnector.pushAnomalyES(anomalyIndex=self.anomalyIndex, doc_type='anomaly', body=body)
         else:
             self.edeConnector.pushAnomalyKafka(body=body)
+        if self.grafana_url:
+            from edereporting.edegrafana import EDEGrafanaDash
+            logger.info('[%s] : [INFO] Adding Grafana annotation ...',
+                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+            det_method = body['method']
+            det_model = body['model']
+            anomaly_method = f"Anomalies detected by EDE with method {det_method}, model: {det_model}"
+            anomaly_tags = [f'{det_method}_anomaly']
+            ede_grafana = EDEGrafanaDash(grafana_token=self.grafana_credentials, grafana_url=self.grafana_url)
+            # Check if dashboard exists with tag
+            dash_uid, dash_url, dash_id = ede_grafana.get_dash(tag=self.grafana_tag)
+            if dash_uid:
+                logger.info('[{}] : [INFO] Detected Grafana dashboard with tag {}, marking anomalies ... '.format(
+                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.grafana_tag))
+            else:
+                # Generate Demo Dashboard
+                logger.info('[{}] : [INFO] Grafana Dashoard with tag {} not detected, creating ... '.format(
+                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.grafana_tag))
+                ede_grafana.generate_dash(tag=self.grafana_tag, title="Serrano Grafana Dash Demo v1")
+                ede_grafana.create_dash()
+                # Getting dash data
+                dash_uid, dash_url, dash_id = ede_grafana.get_dash(tag=self.grafana_tag)
+                logger.info(
+                    '[{}] : [INFO] Grafana Dashoard generated with tag {}, uid {}, marking anomalies ... '.format(
+                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.grafana_tag, dash_uid))
+            for anomaly in body['anomalies']: # todo if anomalies are sequential make one continouse annotation not separate ones
+                try:
+                    anomaly_type = anomaly['type']
+                    anomaly_tags = [f'{anomaly_type}_{det_method}_anomaly']
+                except:
+                    pass
+                ede_grafana.push_annotation(int(anomaly['utc'] * 1000), int(anomaly['utc'] * 1000),
+                                            anomaly_tags=anomaly_tags,
+                                            message=anomaly_method, dash_id=dash_id)
 
     def getDFS(self, detect=False):
         # Query Strings
@@ -1580,7 +1615,7 @@ class EDEngine:
             to = int(self.to)
         print("Querying DFS metrics")
         logger.info('[%s] : [INFO] Querying DFS metrics...',
-                                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                            datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
         dfs, dfs_file = self.qConstructor.dfsString()
         dfsFs, dfsFs_file = self.qConstructor.dfsFString()
@@ -1607,20 +1642,20 @@ class EDEngine:
 
         print("Querying DFS metrics complete.")
         logger.info('[%s] : [INFO] Querying DFS metrics complete.',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
 
         print("Starting DFS merge ...")
         if not checkpoint:
             merged_DFS = self.dformat.chainMergeDFS()
             self.dformat.df2csv(merged_DFS, os.path.join(self.dataDir, 'Merged_DFS.csv'))
             logger.info('[%s] : [INFO] DFS merge complete',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
             print("DFS merge complete.")
             return 0
         else:
             merged_DFS = self.dformat.chainMergeDFS(dfs=df_dfs, dfsfs=df_dfsFs, fsop=df_fsop)
             logger.info('[%s] : [INFO] DFS merge complete',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
             print("DFS merge complete.")
             return merged_DFS
 
@@ -1633,7 +1668,7 @@ class EDEngine:
             to = int(self.to)
         print("Querying  Node Manager and Shuffle metrics ...")
         logger.info('[%s] : [INFO] Querying  Node Manager and Shuffle metrics...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
         lNM = []
         ljvmNM = []
@@ -1657,7 +1692,7 @@ class EDEngine:
                     lNM.append(self.dformat.dict2csv(gnodeManagerResponse, qnodeManager, nodeManager_file, df=checkpoint))
             else:
                 logger.info('[%s] : [INFO] Empty response from  %s no Node Manager detected!',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), node)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), node)
 
             gjvmNodeManagerResponse = self.edeConnector.aggQuery(qjvmNodeManager)
             if list(gjvmNodeManagerResponse['aggregations'].values())[0].values()[0]:
@@ -1667,7 +1702,7 @@ class EDEngine:
                     ljvmNM.append(self.dformat.dict2csv(gjvmNodeManagerResponse, qjvmNodeManager, jvmNodeManager_file, df=checkpoint))
             else:
                 logger.info('[%s] : [INFO] Empty response from  %s no Node Manager detected!',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), node)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), node)
 
             gshuffleResponse = self.edeConnector.aggQuery(qshuffle)
             if list(gshuffleResponse['aggregations'].values())[0].values()[0]:
@@ -1677,10 +1712,10 @@ class EDEngine:
                     lShuffle.append(self.dformat.dict2csv(gshuffleResponse, qshuffle, shuffle_file, df=checkpoint))
             else:
                 logger.info('[%s] : [INFO] Empty response from  %s no shuffle metrics!',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), node)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), node)
         print("Querying  Node Manager and Shuffle metrics complete.")
         logger.info('[%s] : [INFO] Querying  Node Manager and Shuffle metrics complete...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
 
         print("Starting Node Manager merge ...")
         if not checkpoint:
@@ -1689,7 +1724,7 @@ class EDEngine:
             self.dformat.df2csv(jvmnn_merged, os.path.join(self.dataDir, 'Merged_JVM_NM.csv'))
             self.dformat.df2csv(shuffle_merged, os.path.join(self.dataDir, 'Merged_Shuffle.csv'))
             logger.info('[%s] : [INFO] Node Manager Merge complete',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
             print("Node Manager Merge Complete")
             nm_merged = 0
             jvmnn_merged = 0
@@ -1697,7 +1732,7 @@ class EDEngine:
         else:
             nm_merged, jvmnn_merged, shuffle_merged = self.dformat.chainMergeNM(lNM=lNM, lNMJvm=ljvmNM, lShuffle=lShuffle)
             logger.info('[%s] : [INFO] Node Manager Merge complete',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
             print("Node Manager Merge Complete")
         return nm_merged, jvmnn_merged, shuffle_merged
 
@@ -1710,7 +1745,7 @@ class EDEngine:
             to = int(self.to)
         print("Querying  Name Node metrics ...")
         logger.info('[%s] : [INFO] Querying  Name Node metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
         jvmNameNodeString, jvmNameNode_file = self.qConstructor.jvmNameNodeString()
         qjvmNameNode = self.qConstructor.jvmNNquery(jvmNameNodeString, tfrom, to, self.qsize, self.qinterval)
@@ -1724,7 +1759,7 @@ class EDEngine:
             returnNN = df_NN
         print("Querying  Name Node metrics complete")
         logger.info('[%s] : [INFO] Querying  Name Node metrics complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         return returnNN
 
     def getCluster(self, detect=False):
@@ -1736,27 +1771,27 @@ class EDEngine:
             to = int(self.to)
         print("Querying  Cluster metrics ...")
         logger.info('[%s] : [INFO] Querying  Name Node metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
         queue, queue_file = self.qConstructor.queueResourceString()
         cluster, cluster_file = self.qConstructor.clusterMetricsSring()
-        # jvmMrapp, jvmMrapp_file = self.qConstructor.jvmMrappmasterString()
+        
         jvmResMng, jvmResMng_file = self.qConstructor.jvmResourceManagerString()
 
-        # qjvmMrapp = self.qConstructor.jvmNNquery(jvmMrapp, tfrom, to, self.qsize, self.qinterval)
+        
         qqueue = self.qConstructor.resourceQueueQuery(queue, tfrom, to, self.qsize, self.qinterval)
         qcluster = self.qConstructor.clusterMetricsQuery(cluster, tfrom, to, self.qsize, self.qinterval)
         qjvmResMng = self.qConstructor.jvmNNquery(jvmResMng, tfrom, to, self.qsize, self.qinterval)
 
         gqueue = self.edeConnector.aggQuery(qqueue)
         gcluster = self.edeConnector.aggQuery(qcluster)
-        # gjvmMrapp = self.dmonConnector.aggQuery(qjvmMrapp)
+        
         gjvmResourceManager = self.edeConnector.aggQuery(qjvmResMng)
 
         if not checkpoint:
             self.dformat.dict2csv(gcluster, qcluster, cluster_file)
             self.dformat.dict2csv(gqueue, qqueue, queue_file)
-            # self.dformat.dict2csv(gjvmMrapp, qjvmMrapp, jvmMrapp_file)
+            
             self.dformat.dict2csv(gjvmResourceManager, qjvmResMng, jvmResMng_file)
 
             print("Starting cluster merge ...")
@@ -1766,7 +1801,7 @@ class EDEngine:
         else:
             df_cluster = self.dformat.dict2csv(gcluster, qcluster, cluster_file, df=checkpoint)
             df_queue = self.dformat.dict2csv(gqueue, qqueue, queue_file, df=checkpoint)
-            # df_jvmMrapp = self.dformat.dict2csv(gjvmMrapp, qjvmMrapp, jvmMrapp_file, df=checkpoint)
+            
             df_jvmResourceManager = self.dformat.dict2csv(gjvmResourceManager, qjvmResMng, jvmResMng_file, df=checkpoint)
             print("Starting cluster merge ...")
             merged_cluster = self.dformat.chainMergeCluster(clusterMetrics=df_cluster, queue=df_queue,
@@ -1774,10 +1809,10 @@ class EDEngine:
             clusterReturn = merged_cluster
         print("Querying  Cluster metrics complete")
         logger.info('[%s] : [INFO] Querying  Name Node metrics complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
 
         logger.info('[%s] : [INFO] Cluster Merge complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         print("Cluster merge complete")
         return clusterReturn
 
@@ -1796,7 +1831,7 @@ class EDEngine:
         checkpoint = str2Bool(self.checkpoint)
         print("Querying  Mapper and Reducer metrics ...")
         logger.info('[%s] : [INFO] Querying  Mapper and Reducer metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         for node in nodes:
             reduce = self.qConstructor.jvmRedProcessString(node)
             map = self.qConstructor.jvmMapProcessingString(node)
@@ -1809,24 +1844,22 @@ class EDEngine:
 
             uniqueReduce = set()
             for i in greduce['hits']['hits']:
-                # print i['_source']['ProcessName']
                 uniqueReduce.add(i['_source']['ProcessName'])
             nodeProcessReduce[node] = list(uniqueReduce)
 
             uniqueMap = set()
             for i in gmap['hits']['hits']:
-                # print i['_source']['ProcessName']
                 uniqueMap.add(i['_source']['ProcessName'])
             nodeProcessMap[node] = list(uniqueMap)
 
         print("Querying  Reducer metrics ...")
         logger.info('[%s] : [INFO] Querying  Reducer metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         for host, processes in nodeProcessReduce.items():
             if processes:
                 for process in processes:
                     logger.info('[%s] : [INFO] Reduce process %s for host  %s found',
-                                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), process,
+                                datetime.fromtimestamp(time.time()).strftime(log_format), process,
                                 host)
                     hreduce, hreduce_file = self.qConstructor.jvmRedProcessbyNameString(host, process)
                     qhreduce = self.qConstructor.jvmNNquery(hreduce, tfrom, to, self.qsize, self.qinterval)
@@ -1834,24 +1867,23 @@ class EDEngine:
                     if not checkpoint:
                         self.dformat.dict2csv(ghreduce, qhreduce, hreduce_file)
                     else:
-                        # lRD.append(self.dformat.dict2csv(ghreduce, qhreduce, hreduce_file, df=checkpoint))
                         lRD[process] = self.dformat.dict2csv(ghreduce, qhreduce, hreduce_file, df=checkpoint)
             else:
                 logger.info('[%s] : [INFO] No reduce process for host  %s found',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), host)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), host)
                 pass
         print("Querying  Reducer metrics complete")
         logger.info('[%s] : [INFO] Querying  Reducer metrics complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
 
         print("Querying  Mapper metrics ...")
         logger.info('[%s] : [INFO] Querying  Mapper metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         for host, processes in nodeProcessMap.items():
             if processes:
                 for process in processes:
                     logger.info('[%s] : [INFO] Map process %s for host  %s found',
-                                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), process,
+                                datetime.fromtimestamp(time.time()).strftime(log_format), process,
                                 host)
                     hmap, hmap_file = self.qConstructor.jvmMapProcessbyNameString(host, process)
                     qhmap = self.qConstructor.jvmNNquery(hmap, tfrom, to, self.qsize, self.qinterval)
@@ -1859,18 +1891,17 @@ class EDEngine:
                     if not checkpoint:
                         self.dformat.dict2csv(ghmap, qhmap, hmap_file)
                     else:
-                        # lMP.append(self.dformat.dict2csv(ghmap, qhmap, hmap_file, df=checkpoint))
                         lMP[process] = self.dformat.dict2csv(ghmap, qhmap, hmap_file, df=checkpoint)
             else:
                 logger.info('[%s] : [INFO] No map process for host  %s found',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), host)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), host)
                 pass
         print("Querying  Mapper metrics complete")
         logger.info('[%s] : [INFO] Querying  Mapper metrics complete',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
         print("Querying MRApp metrics ... ")
         logger.info('[%s] : [INFO] Querying  MRApp metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         jvmMrapp, jvmMrapp_file = self.qConstructor.jvmMrappmasterString()
 
         qjvmMrapp = self.qConstructor.jvmNNquery(jvmMrapp, tfrom, to, self.qsize, self.qinterval)
@@ -1882,7 +1913,7 @@ class EDEngine:
         else:
             df_jvmMrapp = self.dformat.dict2csv(gjvmMrapp, qjvmMrapp, jvmMrapp_file, df=checkpoint)
         logger.info('[%s] : [INFO] Querying  MRApp metrics complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         print("Querying MRApp metrics complete ")
         return lMP, lRD, df_jvmMrapp
 
@@ -1895,7 +1926,7 @@ class EDEngine:
             to = int(self.to)
         print("Querying  Data Node metrics ...")
         logger.info('[%s] : [INFO] Querying  Data Node metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
         lDN = []
         for node in nodes:
@@ -1910,27 +1941,27 @@ class EDEngine:
                     lDN.append(self.dformat.dict2csv(gdatanode, qdatanode, datanode_file, df=checkpoint))
             else:
                 logger.info('[%s] : [INFO] Empty response from  %s no datanode metrics!',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), node)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), node)
         print("Querying  Data Node metrics complete")
         if detect:
             self.dataNodeDetecting = len(lDN)
         else:
             self.dataNodeTraining = len(lDN)
         logger.info('[%s] : [INFO] Querying  Data Node metrics complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
 
         print("Starting Data Node metrics merge ...")
         if not checkpoint:
             dn_merged = self.dformat.chainMergeDN()
             self.dformat.df2csv(dn_merged, os.path.join(self.dataDir, 'Merged_DN.csv'))
             logger.info('[%s] : [INFO] Data Node metrics merge complete',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                            datetime.fromtimestamp(time.time()).strftime(log_format))
             print("Data Node metrics merge complete")
             return 0
         else:
             dn_merged = self.dformat.chainMergeDN(lDN=lDN)
             logger.info('[%s] : [INFO] Data Node metrics merge complete',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
             print("Data Node metrics merge complete")
             return dn_merged
 
@@ -1943,7 +1974,7 @@ class EDEngine:
             to = int(self.to)
         print("Querying  Cassandra metrics ...")
         logger.info('[%s] : [INFO] Querying  Cassandra metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
         lcassandraCounter = []
         lcassandraGauge = []
@@ -1965,14 +1996,13 @@ class EDEngine:
                 self.dformat.dict2csv(gcassandragauge, qcassandragauge, cassandragauge_file, df=True))
 
             # Merge and rename by node system Files
-
         df_CA_Count = self.dformat.chainMergeCassandra(lcassandraCounter)
         df_CA_Gauge = self.dformat.chainMergeCassandra(lcassandraGauge)
 
         df_CA = self.dformat.listMerge([df_CA_Count, df_CA_Gauge])
         print("Cassandra  metrics merge complete")
         logger.info('[%s] : [INFO] Cassandra  metrics merge complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         if not checkpoint:
             self.dformat.df2csv(df_CA, os.path.join(self.dataDir, 'Merged_Cassandra.csv'))
             return 0
@@ -1988,7 +2018,7 @@ class EDEngine:
             to = int(self.to)
         print("Querying Mongodb metrics ...")
         logger.info('[%s] : [INFO] Querying  MongoDB metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
         lmongoCounter = []
         lmongoGauge = []
@@ -2015,7 +2045,7 @@ class EDEngine:
         df_MD = self.dformat.listMerge([df_MD_Count, df_MD_Gauge])
         print("MongoDB metrics merged")
         logger.info('[%s] : [INFO] MongoDB  metrics merge complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
 
         if not checkpoint:
             self.dformat.df2csv(df_MD, os.path.join(self.dataDir, "Merged_Mongo.csv"))
@@ -2026,11 +2056,11 @@ class EDEngine:
     def getQuery(self, detect=False):
         if not os.path.isfile(os.path.join(self.queryDir, 'query.json')):
             logger.error('[%s] : [ERROR] No user defined query found in queries directory!',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
             print("No user defined query found in queries directory! Exiting ...")
             sys.exit(1)
         logger.info('[%s] : [INFO] Started User defined querying  ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
         query = self.qConstructor.sideQuery()
         try:
@@ -2042,7 +2072,7 @@ class EDEngine:
                 query['query']['filtered']['filter']['bool']['must'][0]['range']['@timestamp']['gte'] = "now-%s" % self.interval
                 query['query']['filtered']['filter']['bool']['must'][0]['range']['@timestamp']['lte'] = "now"
                 logger.info('[%s] : [INFO] User defined query detect set with interval %s!',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                            datetime.fromtimestamp(time.time()).strftime(log_format),
                             str(self.interval))
             qfrom = query['query']['filtered']['filter']['bool']['must'][0]['range']['@timestamp']['gte']
             qto = query['query']['filtered']['filter']['bool']['must'][0]['range']['@timestamp']['lte']
@@ -2053,7 +2083,7 @@ class EDEngine:
             # Query Aggs
             if len(list(query['aggs'].values())) > 1:
                 logger.error('[%s] : [ERROR] Aggregation type unsupported, got length %s expected 1!',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(len(list(query['aggs'].values()))))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), str(len(list(query['aggs'].values()))))
                 print("Aggregation type unsupported, got length %s expected 1!" % str(len(list(query['aggs'].values()))))
                 sys.exit(1)
             else:
@@ -2065,11 +2095,11 @@ class EDEngine:
                 qMax = list(query['aggs'].values())[0]['date_histogram']['extended_bounds']['max']
         except Exception as inst:
             logger.error('[%s] : [ERROR] Unsupported query detected with %s and %s!',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             print("Unsupported query detected! Exiting ...")
             sys.exit(1)
         logger.info('[%s] : [INFO] Query succesfully parsed; querystring -> %s, from-> %s, to-> %s, size-> %s, interval-> %s',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), queryStr, qfrom, qto, qSize, qInterval)
+                    datetime.fromtimestamp(time.time()).strftime(log_format), queryStr, qfrom, qto, qSize, qInterval)
         print("User Query Succesfully parsed: ")
         print("querystring -> %s" % queryStr)
         print("from-> %s" % qfrom)
@@ -2084,11 +2114,10 @@ class EDEngine:
             returnUQ = 0
         else:
             df_UQ = self.dformat.dict2csv(guserQuery, query, response_file, df=checkpoint)
-            # df_NN.set_index('key', inplace=True)
             returnUQ = df_UQ
         print("Querying  Name Node metrics complete")
         logger.info('[%s] : [INFO] Querying  Name Node metrics complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         return returnUQ
 
     def getCEP(self, detect=False):
@@ -2100,7 +2129,7 @@ class EDEngine:
             to = int(self.to)
         print("Querying CEP metrics ...")
         logger.info('[%s] : [INFO] Querying  CEP metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
         cep, cep_file = self.qConstructor.cepQueryString()
 
@@ -2125,27 +2154,26 @@ class EDEngine:
                 except Exception as inst:
                     print('Failed to parse CEP response!')
                     logger.warning('[%s] : [WARN] Failed to parse CEP response with %s and %s',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                    datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
         except Exception as inst:
             print('Malformed CEP response detected. Exiting!')
             logger.error('[%s] : [ERROR] Malformed CEP response detected  with %s and %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             sys.exit(1)
         if not dCepArray:
             print("CEP response is empty! Exiting ....")
             logger.error('[%s] : [WARN] CEP response is empty!',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
             sys.exit(1)
         df = self.dformat.dtoDF(dCepArray)
         if not checkpoint:
             self.dformat.df2csv(df, os.path.join(self.dataDir, cep_file))
             returnCEP = 0
         else:
-            # df.set_index('key', inplace=True)
             returnCEP = df
         print("Querying  CEP metrics complete")
         logger.info('[%s] : [INFO] Querying  CEP metrics complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
 
         return returnCEP
 
@@ -2158,7 +2186,7 @@ class EDEngine:
             to = int(self.to)
         print("Querying Spark metrics ...")
         logger.info('[%s] : [INFO] Querying  Spark metrics ...',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         checkpoint = str2Bool(self.checkpoint)
 
         sparkString, spark_file = self.qConstructor.sparkString()
@@ -2170,17 +2198,12 @@ class EDEngine:
             returnSP = 0
         else:
             df_SP = self.dformat.dict2csv(gSpark, qSpark, spark_file, df=checkpoint)
-            # df_NN.set_index('key', inplace=True)
             returnNN = df_SP
         print("Querying  Spark metrics complete")
         logger.info('[%s] : [INFO] Querying  Name Node metrics complete',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                    datetime.fromtimestamp(time.time()).strftime(log_format))
         return returnNN
 
-    # def printTest(self):
-    #     print("Endpoint -> %s" %self.esendpoint)
-    #     print("Method settings -> %s" %self.methodSettings)
-    #     print("Train -> %s"  % type(self.train))
 
     def print_time(self, threadName, delay):
         count = 0

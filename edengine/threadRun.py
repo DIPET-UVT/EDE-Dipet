@@ -45,7 +45,7 @@ class EdeTrainThread(threading.Thread):
     def run(self):
         logger.info('[{}] : [INFO] Starting Engine Train thread {}'.format(
             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.threadID))
-        self.engine.trainMethod()
+        self.engine.trainMethodSelector()
 
 
 class EdeDetectThread(threading.Thread):
