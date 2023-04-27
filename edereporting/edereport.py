@@ -17,10 +17,13 @@ limitations under the License.
 """
 
 from fpdf import FPDF
+from datetime import datetime
+import time
 from glob import glob
 import argparse
 import os
-
+from util import log_format
+from edelogger import logger
 
 class EDEPDF(FPDF):
     def __init__(self, folder, name, model=None, type=None):
@@ -79,13 +82,13 @@ class EDEPDF(FPDF):
     def print_page(self, image):
         # Generates the report
         if isinstance(image, int):
-            print("Received no image! Skipping")
+            logger.warning('[{}] : [WARN] Received no image! Skipping ...'.format(datetime.fromtimestamp(time.time().strftime(log_format)))
         else:
             try:
                 self.add_page()
                 self.page_body(image)
             except Exception as inst:
-                print(f"Exception while adding image! With {type(inst)}, {inst.args}")
+                logger.error('[{}] : [ERROR] Exception while adding image! With {}, {}} ...'.format(datetime.fromtimestamp(time.time().strftime(log_format), type(inst), inst.args))
 
     def print_analysis_feature_plot(self, images, classif=False):
         self.add_page()
