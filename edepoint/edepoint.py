@@ -17,7 +17,7 @@ limitations under the License.
 """
 
 from elasticsearch import Elasticsearch
-from elasticsearch_watcher import WatcherClient
+from elasticsearch_watcher import WatcherClient # deprecated
 from edelogger import logger
 from datetime import datetime
 from random import randint
