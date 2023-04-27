@@ -26,17 +26,15 @@ import sys
 import pandas as pd
 import numpy as np
 import glob
-from util import csvheaders2colNames # TODO Check ARFF compatibility
+from util import csvheaders2colNames, log_format # TODO Check ARFF compatibility
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
-# from sklearn.externals import joblib # if dump fails
 import joblib
 import importlib
 from functools import reduce
 import tqdm
-# import weka.core.jvm as jvm
 import warnings
-# warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
@@ -53,13 +51,13 @@ class DataFormatter:
     def getGT(self, data, gt='target'):
         if gt is None:
             logger.warning('[{}] : [WARN] Ground truth column not defined, fetching last column as target'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             features = data.columns[:-1]
             X = data[features]
             y = data.iloc[:, -1].values
         else:
             logger.info('[{}] : [INFO] Ground truth column set to {} '.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), gt))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), gt))
             y = data[gt].values
             X = data.drop([gt], axis=1)
         return X, y
@@ -89,7 +87,7 @@ class DataFormatter:
                     for ncol_n, fcol_n in cl_std.items():
                         df_std = self.filterColumns(df, lColumns=fcol_n)
                         logger.info('[{}] : [INFO] Computing standard deviation {} on columns {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), ncol_n, fcol_n))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), ncol_n, fcol_n))
                         std_df = df_std.std(axis=1, skipna=True)
                         df[ncol_n] = std_df
                         for c in fcol_n:
@@ -99,7 +97,7 @@ class DataFormatter:
                     for ncol_n, fcol_n in cl_mean.items():
                         df_mean = self.filterColumns(df, lColumns=fcol_n)
                         logger.info('[{}] : [INFO] Computing mean {} on columns {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), ncol_n, fcol_n))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), ncol_n, fcol_n))
                         mean_df = df_mean.mean(axis=1, skipna=True)
                         df[ncol_n] = mean_df
                         for c in fcol_n:
@@ -109,7 +107,7 @@ class DataFormatter:
                     for ncol_n, fcol_n in cl_median.items():
                         df_median = self.filterColumns(df, lColumns=fcol_n)
                         logger.info('[{}] : [INFO] Computing median {} on columns {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), ncol_n, fcol_n))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), ncol_n, fcol_n))
                         median_df = df_median.median(axis=1, skipna=True)
                         df[ncol_n] = median_df
                         for c in fcol_n:
@@ -119,13 +117,13 @@ class DataFormatter:
             if remove_filtered:
                 unique_all_processed_columns = list(set(all_processed_columns))
                 logger.warning('[{}] : [WARN] Droping columns used for computation ...'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), unique_all_processed_columns))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
                 self.dropColumns(df, unique_all_processed_columns, cp=False)
         else:
             logger.info('[{}] : [INFO] No data operations/augmentations defined'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                            datetime.fromtimestamp(time.time()).strftime(log_format)))
         logger.info('[{}] : [INFO] Augmented data shape {}'.format(
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), df.shape))
+                            datetime.fromtimestamp(time.time()).strftime(log_format), df.shape))
         return df
 
     def filterColumns(self, df, lColumns):
@@ -136,17 +134,14 @@ class DataFormatter:
         '''
         if not isinstance(lColumns, list):
             logger.error('[%s] : [ERROR] Dataformatter filter method expects list of column names not %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(lColumns))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), type(lColumns))
             sys.exit(1)
         if not lColumns in df.columns.values: # todo checK FutureWarning: elementwise comparison failed; returning scalar instead, but in the future will perform elementwise comparison
             # print(lColumns)
             result = any(elem in lColumns for elem in df.columns.values) # todo check why all doesn't work
             if not result:
                 logger.error('[%s] : [ERROR] Dataformatter filter method unknown columns %s',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), lColumns)
-            # print(len(df.columns.values))
-            # for e in df.columns.values:
-            #     print("{},".format(e))
+                             datetime.fromtimestamp(time.time()).strftime(log_format), lColumns)
                 sys.exit(1)
         return df[lColumns]
 
@@ -162,16 +157,15 @@ class DataFormatter:
         filtr_list.extend(list(df.loc[:, mask].columns.values))
 
         logger.info('[%s] : [INFO] Columns to be filtered based on wildcard: %s',
-                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), filtr_list)
+                     datetime.fromtimestamp(time.time()).strftime(log_format), filtr_list)
         if keep:
             df_wild = df[filtr_list]
         else:
             df_wild = df.drop(filtr_list, axis=1)
 
         logger.info('[%s] : [INFO] Filtered shape:  %s',
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), df_wild.shape)
-        # print("Columns of filtered data:")
-        # print(df_concat_filtered.columns)
+                    datetime.fromtimestamp(time.time()).strftime(log_format), df_wild.shape)
+        
         return df_wild
 
     def filterRows(self, df, ld, gd=0):
@@ -187,14 +181,14 @@ class DataFormatter:
                 return df[df.time < ld]
             except Exception as inst:
                 logger.error('[%s] : [ERROR] Dataformatter filter method row exited with %s and %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
                 sys.exit(1)
         else:
             try:
                 return df[df.time < ld]
             except Exception as inst:
                 logger.error('[%s] : [ERROR] Dataformatter filter method row exited with %s and %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
                 sys.exit(1)
 
     def dropColumns(self, df, lColumns, cp=True):
@@ -209,39 +203,39 @@ class DataFormatter:
                 return df.drop(lColumns, axis=1)
             except Exception as inst:
                 logger.error('[%s] : [ERROR] Dataformatter filter method drop columns exited with %s and %s',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                             datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
                 sys.exit(1)
         else:
             try:
                 df.drop(lColumns, axis=1, inplace=True)
             except Exception as inst:
                 logger.error('[%s] : [ERROR] Dataformatter filter method drop columns exited with %s and %s',
-                             datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                             datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
                 sys.exit(1)
             return 0
 
     def filterLowVariance(self, df):
         logger.info('[{}] : [INFO] Checking low variance columns ...'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            datetime.fromtimestamp(time.time()).strftime(log_format)))
         uniques = df.apply(lambda x: x.nunique())
         rm_columns = []
         for uindex, uvalue in uniques.iteritems():
             if uvalue == 1:
                 rm_columns.append(uindex)
         logger.info('[{}] : [INFO] Found {} low variance columns removing ...'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), len(rm_columns)))
+            datetime.fromtimestamp(time.time()).strftime(log_format), len(rm_columns)))
         logger.debug('[{}] : [INFO] Found {} low variance columns: {}'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), len(rm_columns), rm_columns))
+            datetime.fromtimestamp(time.time()).strftime(log_format), len(rm_columns), rm_columns))
         df.drop(rm_columns, inplace=True, axis=1)
 
     def fillMissing(self, df):
         logger.info('[{}] : [INFO] Filling in missing values with 0'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            datetime.fromtimestamp(time.time()).strftime(log_format)))
         df.fillna(0, inplace=True)
 
     def dropMissing(self, df):
         logger.info('[{}] : [INFO] Dropping columns with in missing values'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            datetime.fromtimestamp(time.time()).strftime(log_format)))
         df.dropna(axis=1, how='all', inplace=True)
 
     def merge(self, csvOne, csvTwo, merged):
@@ -256,7 +250,7 @@ class DataFormatter:
         mergedCsv = fone.merge(ftwo, on='key')
         mergedCsv.to_csv(merged, index=False)
         logger.info('[%s] : [INFO] Merged %s and %s into %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                                         datetime.fromtimestamp(time.time()).strftime(log_format),
                     str(csvOne), str(csvTwo), str(merged))
 
     def merge2(self, csvOne, csvTwo, merged):
@@ -305,7 +299,7 @@ class DataFormatter:
             dfList = lFiles
         else:
             logger.error('[%s] : [ERROR] Cannot merge type %s ',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(type(dfList[0])))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), str(type(dfList[0])))
             sys.exit(1)
         # Get first df and set as master
         current = dfList[0].rename(columns=colNames)
@@ -314,8 +308,6 @@ class DataFormatter:
             for k, v in slaveCol.items():
                 iterSlave[k] = v+str(i)
             current = current.merge(frame).rename(columns=iterSlave)
-        #current.to_csv(mergedFile)
-        # current.set_index('key', inplace=True)
         return current
 
     def chainMergeNR(self, interface=None, memory=None, load=None, packets=None):
@@ -351,7 +343,7 @@ class DataFormatter:
             clusterMetrics = os.path.join(self.dataDir, "ClusterMetrics.csv")
             queue = os.path.join(self.dataDir, "ResourceManagerQueue.csv")
             jvmRM = os.path.join(self.dataDir, "JVM_RM.csv")
-            # jvmmrapp = os.path.join(self.dataDir, "JVM_MRAPP.csv")
+            
 
         lFiles = [clusterMetrics, queue, jvmRM]
 
@@ -432,12 +424,12 @@ class DataFormatter:
             for f in lFiles:
                 if not f:
                     logger.warning('[%s] : [WARN] Found empty string instead of abs path ...',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format))
                 try:
                     df = pd.read_csv(f)
                 except Exception as inst:
                     logger.error('[%s] : [ERROR] Cannot load file at %s exiting',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), f)
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), f)
                     sys.exit(1)
                 dfList.append(df)
         elif all(isinstance(x, pd.DataFrame) for x in lFiles):
@@ -448,23 +440,17 @@ class DataFormatter:
                 if not isinstance(el, pd.DataFrame):
                     incomp.append(type(el))
             logger.error('[%s] : [ERROR] Incompatible type detected for merging, cannot merge type %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(incomp))
-        # for d in dfList:
-        #     if d.empty:
-        #         logger.warning('[%s] : [INFO] Detected empty dataframe in final merge, removing ...',
-        #                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
-        #
-        #         dfList.pop(dfList.index(d))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), str(incomp))
+        
         try:
             current = reduce(lambda x, y: pd.merge(x, y, on='key'), dfList)
         except Exception as inst:
             logger.error('[%s] : [ERROR] Merge dataframes exception %s with args %s',
-                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                         datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
             logger.error('[%s] : [ERROR] Merge dataframes exception df list %s',
-                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), dfList)
+                     datetime.fromtimestamp(time.time()).strftime(log_format), dfList)
             sys.exit(1)
 
-        # current.set_index('key', inplace=True)
         return current
 
     def df2csv(self, dataFrame, mergedFile):
@@ -477,7 +463,7 @@ class DataFormatter:
         # in memory resident ones
         if dataFrame.empty:
             logger.error('[%s] : [ERROR] Received empty dataframe for  %s ',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), mergedFile)
+                        datetime.fromtimestamp(time.time()).strftime(log_format), mergedFile)
             print("Received empty dataframe for %s " % mergedFile)
             sys.exit(1)
         if dataFrame.index.name == 'key':
@@ -487,14 +473,14 @@ class DataFormatter:
                 kDF = dataFrame.set_index('key')
             except Exception as inst:
                 logger.error('[%s] : [ERROR] Cannot write dataframe exception %s with arguments %s',
-                            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
+                            datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args)
                 print(dataFrame.index.name)
                 sys.exit(1)
         kDF.to_csv(mergedFile)
 
     def chainMergeSystem(self, linterface=None, lload=None, lmemory=None, lpack=None):
         logger.info('[%s] : [INFO] Startig system metrics merge .......',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format))
         # Read files
 
         if linterface is None and lload is None and lmemory is None and lpack is None:
@@ -520,28 +506,28 @@ class DataFormatter:
         df_interface = self.chainMerge(allIterface, colNamesInterface)
 
         logger.info('[%s] : [INFO] Interface metrics merge complete',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format))
 
         colNamesPacket = {'rx': 'rx_master', 'tx': 'tx_master'}
         df_packet = self.chainMerge(allPackets, colNamesPacket)
 
         logger.info('[%s] : [INFO] Packet metrics merge complete',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format))
 
         colNamesLoad = {'shortterm': 'shortterm_master', 'midterm': 'midterm_master', 'longterm': 'longterm_master'}
         df_load = self.chainMerge(allLoad, colNamesLoad)
 
         logger.info('[%s] : [INFO] Load metrics merge complete',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format))
 
         colNamesMemory = {'cached': 'cached_master', 'buffered': 'buffered_master',
                           'used': 'used_master', 'free': 'free_master'}
         df_memory = self.chainMerge(allMemory, colNamesMemory)
         logger.info('[%s] : [INFO] Memory metrics merge complete',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format))
 
         logger.info('[%s] : [INFO] Sistem metrics merge complete',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format))
         if ftd:
             self.df2csv(df_interface, mergedInterface)
             self.df2csv(df_packet, mergedPacket)
@@ -566,8 +552,6 @@ class DataFormatter:
         lFile = [dfs, cluster, nodeMng, jvmnodeMng, dataNode, jvmNameNode, shuffle, system]
         merged_df = self.listMerge(lFile)
         merged_df.sort_index(axis=1, inplace=True)
-        # merged_df.set_index('key', inplace=True)
-        #self.dropMissing(merged_df)
         self.fillMissing(merged_df)
         self.fmHead = list(merged_df.columns.values)
         return merged_df
@@ -582,52 +566,48 @@ class DataFormatter:
         '''
         requiredMetrics = []
         logger.info('[%s] : [INFO] Started response to csv conversion',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
-        # print "This is the query _------------_-> %s" %query
-        # print "This is the response _------------_-> %s" %response
+                                         datetime.fromtimestamp(time.time()).strftime(log_format))
+        
         for key, value in response['aggregations'].items():
             for k, v in value.items():
                 for r in v:
                     dictMetrics = {}
-                    # print "This is the dictionary ---------> %s " % str(r)
+                    
                     for rKey, rValue in r.items():
                         if rKey == 'doc_count' or rKey == 'key_as_string':
                             pass
                         elif rKey == 'key':
                             logger.debug('[%s] : [DEBUG] Request has keys %s and  values %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), rKey, rValue)
-                            # print "%s -> %s"% (rKey, rValue)
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), rKey, rValue)
+                            
                             dictMetrics['key'] = rValue
                         elif list(query['aggs'].values())[0].values()[1].values()[0].values()[0].values()[0] == 'type_instance.raw' \
                                 or list(query['aggs'].values())[0].values()[1].values()[0].values()[0].values()[0] == 'type_instance':
-                            logger.debug('[%s] : [DEBUG] Detected Memory type aggregation', datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
-                            # print "This is  rValue ________________> %s" % str(rValue)
-                            # print "Keys of rValue ________________> %s" % str(rValue.keys())
+                            logger.debug('[%s] : [DEBUG] Detected Memory type aggregation', datetime.fromtimestamp(time.time()).strftime(log_format))
+                           
                             try:
                                 for val in rValue['buckets']:
                                         dictMetrics[val['key']] = val['1']['value']
                             except Exception as inst:
                                 logger.error('[%s] : [ERROR] Failed to find key with %s and %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), rKey, rValue['value'])
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), rKey, rValue['value'])
                                 sys.exit(1)
                         else:
-                            # print "Values -> %s" % rValue
-                            # print "rKey -> %s" % rKey
-                            # print "This is the rValue ___________> %s " % str(rValue)
+                           
                             logger.debug('[%s] : [DEBUG] Request has keys %s and flattened values %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), rKey, rValue['value'])
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), rKey, rValue['value'])
                             dictMetrics[rKey] = rValue['value']
                     requiredMetrics.append(dictMetrics)
-        # print "Required Metrics -> %s" % requiredMetrics
+        
         csvOut = os.path.join(self.dataDir, filename)
         cheaders = []
         if list(query['aggs'].values())[0].values()[1].values()[0].values()[0].values()[0] == "type_instance.raw" or \
                         list(query['aggs'].values())[0].values()[1].values()[0].values()[0].values()[0] == 'type_instance':
-            logger.debug('[%s] : [DEBUG] Detected Memory type query', datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+            logger.debug('[%s] : [DEBUG] Detected Memory type query', datetime.fromtimestamp(time.time()).strftime(log_format))
             try:
                 cheaders = list(requiredMetrics[0].keys())
             except IndexError:
-                logger.error('[%s] : [ERROR] Empty response detected from DMon, stoping detection, check DMon.', datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                logger.error('[%s] : [ERROR] Empty response detected from DMon, stoping detection, check DMon.', datetime.fromtimestamp(time.time()).strftime(log_format))
                 print("Empty response detected from DMon, stoping detection, check DMon")
                 sys.exit(1)
         else:
@@ -635,7 +615,7 @@ class DataFormatter:
 
             for qKey, qValue in query['aggs'].items():
                 logger.info('[%s] : [INFO] Value aggs from query %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), qValue['aggs'])
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), qValue['aggs'])
                 for v, t in qValue['aggs'].items():
                     kvImp[v] = t['avg']['field']
                     cheaders.append(v)
@@ -647,9 +627,9 @@ class DataFormatter:
                 for krep, vrep in kvImp.items():
                     e[vrep] = e.pop(krep)
             logger.info('[%s] : [INFO] Dict translator %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(kvImp))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), str(kvImp))
         logger.info('[%s] : [INFO] Headers detected %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(cheaders))
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), str(cheaders))
         if not df:
             try:
                 with open(csvOut, 'wb') as csvfile:
@@ -658,7 +638,7 @@ class DataFormatter:
                     for metrics in requiredMetrics:
                         if set(cheaders) != set(metrics.keys()):
                             logger.error('[%s] : [ERROR] Headers different from required metrics: headers -> %s, metrics ->%s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(cheaders),
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), str(cheaders),
                                          str(list(metrics.keys())))
                             diff = list(set(metrics.keys()) - set(cheaders))
                             print("Headers different from required metrics with %s " % diff)
@@ -667,16 +647,16 @@ class DataFormatter:
                         w.writerow(metrics)
                 csvfile.close()
             except EnvironmentError:
-                logger.error('[%s] : [ERROR] File %s could not be created', datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), csvOut)
+                logger.error('[%s] : [ERROR] File %s could not be created', datetime.fromtimestamp(time.time()).strftime(log_format), csvOut)
                 sys.exit(1)
             logger.info('[%s] : [INFO] Finished csv %s',
-                                         datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), filename)
+                                         datetime.fromtimestamp(time.time()).strftime(log_format), filename)
             return 0
         else:
             df = pd.DataFrame(requiredMetrics)
-            # df.set_index('key', inplace=True)
+            
             logger.info('[%s] : [INFO] Created dataframe',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'))
+                        datetime.fromtimestamp(time.time()).strftime(log_format))
             return df
 
     def prtoDF(self, data,
@@ -691,7 +671,7 @@ class DataFormatter:
         """
         if not data:
             logger.error('[{}] : [ERROR] PR query response is empty, exiting.'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                    datetime.fromtimestamp(time.time()).strftime(log_format)))
             sys.exit(2)
         df = pd.DataFrame()
         df_time = pd.DataFrame()
@@ -719,11 +699,11 @@ class DataFormatter:
         # Add the meant time to rest of metrics
         df['time'] = df_time['mean']
         logger.info('[{}] : [INFO] PR query resulted in dataframe of size: {}'.format(
-                    datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), df.shape))
+                    datetime.fromtimestamp(time.time()).strftime(log_format), df.shape))
         if index is not None:
             df.set_index(index, inplace=True)
             logger.warning('[{}] : [WARN] PR query dataframe index set to  {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), index))
+                datetime.fromtimestamp(time.time()).strftime(log_format), index))
         if checkpoint:
             if detect:
                 pr = "pr_data_detect.csv"
@@ -732,31 +712,134 @@ class DataFormatter:
             pr_csv_loc = os.path.join(self.dataDir, pr)
             df.to_csv(pr_csv_loc, index=True)
             logger.info('[{}] : [INFO] PR query dataframe persisted to {}'.format(
+                    datetime.fromtimestamp(time.time()).strftime(log_format), self.dataDir))
+        return df
+    
+    def sr_pmds_to_df(self,
+                      resp,
+                      node_id='node_name'):
+        """
+        Convert Serrano PMDS response to dataframe
+        :param resp: response from node, pods query
+        :param node_id: name of field for unique identifier for nodes, can be node or node_id
+        :return: pandas dataframe
+        """
+        c_data = {}
+        for e in resp:
+            if f"""{e['_field']}_{e[node_id]}""" in c_data.keys():
+                c_data[f"""{e['_field']}_{e[node_id]}"""].append((pd.to_datetime(e['_time']), e['_value']))
+            else:
+                c_data[f"""{e['_field']}_{e[node_id]}"""] = [(pd.to_datetime(e['_time']), e['_value'])]
+
+        list_df = []
+        for k, v in c_data.items():
+            list_df.append(pd.DataFrame(v, columns=[f'time_{k}', k]))
+
+        df_central = pd.concat(list_df, axis=1, join='inner')
+        # Timestamp columns to drop
+        t_columns = df_central.filter(regex='^time', axis=1).columns
+        # TODO calculate mean timestamp for each row
+        df_central['time'] = df_central[
+            df_central.filter(regex='^time', axis=1).columns[0]]  # regex with begin anchor, $ for end anchor
+        df_central.drop(t_columns, axis=1, inplace=True)
+        # df_central.set_index('time', inplace=True)
+        return df_central
+
+    def sr_pmds_list_to_df(self,
+                           resp_list,
+                           checkpoint=False,
+                           detect=False,
+                           ):
+        """
+        Convert Serrano PMDS response to dataframe
+        :param resp_list: list of responses from node, pods query
+        :return: pandas dataframe
+        """
+        df_list = []
+        for resp in resp_list:
+            df_list.append(self.sr_pmds_to_df(resp))
+        # Check if all dataframes have the same shape
+        if all([set(df_list[0].shape == set(df.shape) for df in df_list)]):
+            df = pd.concat(df_list, axis=1)
+            df = self.__sr_pmds_df_index_fix(df)
+            if checkpoint:
+                if detect:
+                    pr = "pmds_data_detect.csv"
+                else:
+                    pr = "pmds_data.csv"
+                pmds_csv_loc = os.path.join(self.dataDir, pr)
+                df.to_csv(pmds_csv_loc, index=True)
+                logger.info('[{}] : [INFO] PMDS query dataframe persisted to {}'.format(
                     datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), self.dataDir))
+        else:
+            logger.warning('[{}] : [WARN] Dataframes do not have the same shape. Returning empty dataframe.'.format(
+                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            df = pd.DataFrame()
+        return df
+
+    def sr_cth_metrics_to_df(self, resp_metrics):
+        time_st = []
+        metrics_dict = {}
+        if 'error' in resp_metrics.keys():
+            logger.error('[{}] : [ERROR] Serrano CTH failed to provide metrics, '
+                         'returning empty dataframe ...'.format(datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            return pd.DataFrame()
+        try:
+            for e in resp_metrics['metrics']:
+                time_st.append(e['timestamp'])
+                for n in e['state']['Nodes']:
+                    node_name = n['node_name']
+                    for k, v in n.items():
+                        if k == 'node_cpus':
+                            for cp in v:
+                                for k_cp, v_cp in cp.items():
+                                    if k_cp == 'label':
+                                        continue
+                                    metric = f"{k}_{cp['label']}_{k_cp}_{node_name}"
+                                    if metric in metrics_dict.keys():
+                                        metrics_dict[metric].append(v_cp)
+                                    else:
+                                        metrics_dict[metric] = [v_cp]
+                        else:
+                            if k == 'node_name':
+                                continue
+                            metric = f"{k}_{node_name}"
+                            if metric in metrics_dict.keys():
+                                metrics_dict[metric].append(v)
+                            else:
+                                metrics_dict[metric] = [v]
+            metrics_dict['time'] = time_st
+            df_cth_metrics = pd.DataFrame().from_dict(metrics_dict)
+            df_cth_metrics.set_index('time', inplace=True)
+            logger.info('[{}] : [INFO] CTH metrics dataframe created'.format(datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+        except Exception as inst:
+            logger.error('[{}] : [ERROR] CTH metrics dataframe creation failed with {} and {}, returning empty dataframe ...'.format(datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+            df_cth_metrics = pd.DataFrame()
+        return df_cth_metrics
+
+    def __sr_pmds_df_index_fix(self, df, index='time'):
+        cols = []
+        count = 0
+        for column in df.columns:
+            if column == index:
+                new_column = f'{index}_{count}'
+                if new_column == f'{index}_0':
+                    new_column = index
+                cols.append(new_column)
+                count += 1
+                continue
+            cols.append(column)
+        df.columns = cols
+        t_columns = df.filter(regex=f'^{index}_', axis=1).columns
+        df.drop(t_columns, axis=1, inplace=True)
+        # df.set_index('time', inplace=True)
         return df
 
     def df2dict(self, df):
         kdf = df.set_index('key')
         return kdf.to_dict()
 
-    # def dict2arff(self, fileIn, fileOut):
-    #     '''
-    #     :param fileIn: name of csv file
-    #     :param fileOut: name of new arff file
-    #     :return:
-    #     '''
-    #     dataIn = os.path.join(self.dataDir, fileIn)
-    #     dataOut = os.path.join(self.dataDir, fileOut)
-    #     logger.info('[%s] : [INFO] Starting conversion of %s to %s', datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), dataIn, dataOut)
-    #     try:
-    #         jvm.start()
-    #         convertCsvtoArff(dataIn, dataOut)
-    #     except Exception as inst:
-    #         pass
-    #     finally:
-    #         logger.error('[%s] : [ERROR] Exception occured while converting to arff with %s and %s', datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args)
-    #         jvm.stop()
-    #     logger.info('[%s] : [INFO] Finished conversion of %s to %s', datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), dataIn, dataOut)
+    
 
     def normalize(self, dataFrame):
         '''
@@ -790,7 +873,7 @@ class DataFormatter:
         if not os.path.isfile(fileName):
             print("File %s does not exist, cannot load data! Exiting ..." % str(fileName))
             logger.error('[%s] : [ERROR] File %s does not exist',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(fileName))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(fileName))
             sys.exit(1)
         df = pd.read_csv(fileName)
         return df
@@ -825,9 +908,9 @@ class DataFormatter:
                     else:
                         cols.append(el)
             logger.info('[%s] : [INFO] Categorical features not set, detected as categorical: %s',
-                        datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(cols))
+                        datetime.fromtimestamp(time.time()).strftime(log_format), str(cols))
         logger.info('[{}] : [INFO] Categorical features now set to {}'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), str(cols)))
+            datetime.fromtimestamp(time.time()).strftime(log_format), str(cols)))
         vec = DictVectorizer()
         mkdict = lambda row: dict((col, row[col]) for col in cols)
         vecData = pd.DataFrame(vec.fit_transform(data[cols].apply(mkdict, axis=1)).toarray())
@@ -843,25 +926,25 @@ class DataFormatter:
               rindex='time'):  # todo, integrate
         if not scaler_type:
             logger.warning('[{}] : [WARN] No data scaling used!'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             return data
         if scaler_type is None:
             scaler_type = {"StandardScaler": {"copy": True, "with_mean": True, "with_std": True}}
-            logger.warning('[{}] : [WARN] No user defined scaler using default'.format(datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), scaler_type))
+            logger.warning('[{}] : [WARN] No user defined scaler using default: {}'.format(datetime.fromtimestamp(time.time()).strftime(log_format), str(scaler_type)))
         scaler_name = list(scaler_type.keys())[-1]
         scaler_attr = list(scaler_type.values())[-1]
-        logger.info('[{}] : [INFO] Scaler set to {} with parameters {}.'.format(datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), scaler_name, scaler_attr))
+        logger.info('[{}] : [INFO] Scaler set to {} with parameters {}.'.format(datetime.fromtimestamp(time.time()).strftime(log_format), scaler_name, scaler_attr))
         try:
             sc_mod = importlib.import_module(self.scaler_mod)
             scaler_instance = getattr(sc_mod, scaler_name)
             scaler = scaler_instance(**scaler_attr)
         except Exception as inst:
             logger.error('[{}] : [ERROR] Error while initializing scaler {}'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), scaler_name))
+            datetime.fromtimestamp(time.time()).strftime(log_format), scaler_name))
             sys.exit(2)
         # Fit and transform data
         logger.info('[{}] : [INFO] Scaling data ...'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            datetime.fromtimestamp(time.time()).strftime(log_format)))
         scaled_data = scaler.fit_transform(data)
         # Transform numpy array into dataframe, re-add columns to scaled numpyarray
         df_scaled = pd.DataFrame(scaled_data, columns=data.columns)
@@ -869,7 +952,7 @@ class DataFormatter:
         df_scaled.set_index(rindex, inplace=True)
         scaler_file = '{}.scaler'.format(scaler_name)
         logger.info('[{}] : [INFO] Saving scaler instance {} ...'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), scaler_file))
+            datetime.fromtimestamp(time.time()).strftime(log_format), scaler_file))
         scale_file_location = os.path.join(self.dataDir, scaler_file)
         joblib.dump(scaler, filename=scale_file_location)
         return df_scaled
@@ -889,19 +972,19 @@ class DataFormatter:
                           data):
         try:
             logger.info('[{}] : [INFO] Loading user defined operation'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+                datetime.fromtimestamp(time.time()).strftime(log_format)))
             data_op = method(data)
         except Exception as inst:
             logger.error('[{}] : [ERROR] Failed to load user operation with {} and {}'.format(
-                datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), type(inst), inst.args))
+                datetime.fromtimestamp(time.time()).strftime(log_format), type(inst), inst.args))
             return data
         logger.info('[{}] : [INFO] Finished user operation'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            datetime.fromtimestamp(time.time()).strftime(log_format)))
         return data_op
 
     def labelEncoding(self, data_column):
         logger.info('[{}] : [INFO] Label encoding ...'.format(
-            datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')))
+            datetime.fromtimestamp(time.time()).strftime(log_format)))
         enc = OrdinalEncoder()
         enc.fit(data_column)
         enc_data_column = enc.transform(data_column)
